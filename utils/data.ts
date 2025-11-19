@@ -1,56 +1,83 @@
 import { OOHRecord } from '../types';
+import { parquetRead } from 'hyparquet';
 
-const CITIES = ['Москва и МО', 'Санкт-Петербург', 'Новосибирск', 'Екатеринбург', 'Казань'];
-const VENDORS = ['RUSS', 'РИМ MEDIAGROUP', 'ГОРИНФОР', 'GALLERY', 'POSTER', 'NORTH STAR', 'OUTDOOR'];
-const FORMATS = ['SS', 'CB', 'DSS', 'BB', 'DBB', 'DCB', 'MF'];
-const MONTHS = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
-const YEARS = [2024, 2025];
+// Список файлов, которые мы ожидаем найти в папке public/data
+// Если появятся новые месяцы, просто добавьте их сюда или сделайте генератор имен
+const FILE_LIST = [
+  'final_OOH_январь_2024.parquet',
+  'final_OOH_февраль_2024.parquet',
+  'final_OOH_март_2024.parquet',
+  'final_OOH_апрель_2024.parquet',
+  'final_OOH_май_2024.parquet',
+  'final_OOH_июнь_2024.parquet',
+  'final_OOH_июль_2024.parquet',
+  'final_OOH_август_2024.parquet',
+  'final_OOH_сентябрь_2024.parquet',
+  'final_OOH_октябрь_2024.parquet',
+  'final_OOH_ноябрь_2024.parquet',
+  'final_OOH_декабрь_2024.parquet',
+  'final_OOH_январь_2025.parquet',
+  // Добавьте 2025 год по аналогии, если файлы есть
+];
 
-// Generate deterministic random numbers
-let seed = 42;
-const random = () => {
-  const x = Math.sin(seed++) * 10000;
-  return x - Math.floor(x);
-};
-
-const getRandomItem = <T>(arr: T[]): T => arr[Math.floor(random() * arr.length)];
-
-export const generateData = (count: number = 1500): OOHRecord[] => {
-  const data: OOHRecord[] = [];
+export const loadRealData = async (): Promise<OOHRecord[]> => {
+  const allRecords: OOHRecord[] = [];
   
-  for (let i = 0; i < count; i++) {
-    const city = getRandomItem(CITIES);
-    
-    // Rough coordinates for Russia (very approximate clustering)
-    let baseLat = 55.75;
-    let baseLng = 37.61;
-    
-    if (city === 'Санкт-Петербург') { baseLat = 59.93; baseLng = 30.33; }
-    if (city === 'Новосибирск') { baseLat = 55.00; baseLng = 82.93; }
-    if (city === 'Екатеринбург') { baseLat = 56.83; baseLng = 60.60; }
-    if (city === 'Казань') { baseLat = 55.78; baseLng = 49.12; }
+  console.log("Начинаю загрузку Parquet файлов...");
 
-    // Add some noise to coords
-    const lat = baseLat + (random() - 0.5) * 0.5;
-    const lng = baseLng + (random() - 0.5) * 0.8;
+  const promises = FILE_LIST.map(async (filename) => {
+    try {
+      const response = await fetch(`/data/${filename}`);
+      if (!response.ok) {
+        console.warn(`Файл не найден или ошибка сети: ${filename}`);
+        return [];
+      }
+      
+      const arrayBuffer = await response.arrayBuffer();
+      
+      return new Promise<OOHRecord[]>((resolve) => {
+        parquetRead({
+          file: arrayBuffer,
+          onComplete: (rawData: any[]) => {
+            // Преобразуем сырые данные (с русскими ключами) в наш формат OOHRecord
+            const mappedData = rawData.map((row, index) => ({
+              id: `ID-${index}-${Math.random()}`, // Генерируем уникальный ID
+              address: String(row['Адрес в системе Admetrix'] || row['Адрес'] || ''),
+              city: String(row['Город'] || ''),
+              year: Number(row['Год']) || 0,
+              month: String(row['Месяц'] || ''),
+              vendor: String(row['Продавец'] || ''),
+              format: String(row['Формат поверхности'] || ''),
+              grp: Number(row['GRP (18+) в сутки']) || 0,
+              ots: Number(row['OTS (18+) тыс.чел. в сутки']) || 0,
+              // Если в parquet широта/долгота записаны с запятой (как текст), заменяем на точку
+              lat: typeof row['Широта'] === 'string' 
+                   ? parseFloat(row['Широта'].replace(',', '.')) 
+                   : Number(row['Широта']) || 55.75,
+              lng: typeof row['Долгота'] === 'string' 
+                   ? parseFloat(row['Долгота'].replace(',', '.')) 
+                   : Number(row['Долгота']) || 37.61,
+            }));
+            resolve(mappedData);
+          }
+        });
+      });
+    } catch (e) {
+      console.error(`Ошибка при чтении файла ${filename}:`, e);
+      return [];
+    }
+  });
 
-    data.push({
-      id: `ID-${i}`,
-      address: `Ул. Примерная ${Math.floor(random() * 100)}, Позиция ${Math.floor(random() * 50)}`,
-      city,
-      year: getRandomItem(YEARS),
-      month: getRandomItem(MONTHS),
-      vendor: getRandomItem(VENDORS),
-      format: getRandomItem(FORMATS),
-      grp: Number((random() * 8).toFixed(2)),
-      ots: Number((random() * 150 + 10).toFixed(2)), // in thousands
-      lat,
-      lng,
-    });
-  }
-  return data;
+  const results = await Promise.all(promises);
+  
+  // Объединяем все массивы в один
+  results.forEach(arr => allRecords.push(...arr));
+  
+  console.log(`Всего загружено записей: ${allRecords.length}`);
+  return allRecords;
 };
 
+// Вспомогательные функции форматирования оставляем как были
 export const formatNumberRussian = (num: number, decimals = 2): string => {
   return num.toLocaleString('ru-RU', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
 };
