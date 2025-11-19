@@ -1,8 +1,10 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { OOHRecord, FilterState, TabView } from './types';
-import { generateData, formatNumberRussian, formatCompactRussian } from './utils/data';
+// Импортируем новую функцию загрузки
+import { loadRealData, formatNumberRussian, formatCompactRussian } from './utils/data';
 import { TrendChart, FormatBarChart, VendorTreemap } from './components/Charts';
 import { MapViz } from './components/MapViz';
+import { Loader2 } from 'lucide-react'; // Иконка загрузки
 
 // --- COMPONENTS ---
 const KPI_CARD_CLASS = "bg-white p-6 rounded-lg shadow-sm border border-gray-200 flex flex-col items-center justify-center text-center h-32 transition-all hover:shadow-md";
@@ -44,8 +46,25 @@ const FilterDropdown = ({
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<TabView>(TabView.ANALYTICS);
   
-  // Initial Mock Data
-  const [data] = useState<OOHRecord[]>(() => generateData(2000));
+  // State для данных и загрузки
+  const [data, setData] = useState<OOHRecord[]>([]);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+
+  // Загружаем данные при старте
+  useEffect(() => {
+    const fetchData = async () => {
+      setIsLoading(true);
+      try {
+        const records = await loadRealData();
+        setData(records);
+      } catch (error) {
+        console.error("Failed to load data", error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchData();
+  }, []);
 
   // Filter State
   const [filters, setFilters] = useState<FilterState>({
@@ -57,13 +76,18 @@ const App: React.FC = () => {
   });
 
   // Derive Unique Options
-  const options = useMemo(() => ({
-    cities: Array.from(new Set(data.map(d => d.city))).sort(),
-    years: Array.from(new Set(data.map(d => d.year.toString()))).sort(),
-    months: Array.from(new Set(data.map(d => d.month))), 
-    formats: Array.from(new Set(data.map(d => d.format))).sort(),
-    vendors: Array.from(new Set(data.map(d => d.vendor))).sort(),
-  }), [data]);
+  const options = useMemo(() => {
+    // Если данных нет, возвращаем пустые списки
+    if (data.length === 0) return { cities: [], years: [], months: [], formats: [], vendors: [] };
+
+    return {
+      cities: Array.from(new Set(data.map(d => d.city))).sort(),
+      years: Array.from(new Set(data.map(d => d.year.toString()))).sort(),
+      months: Array.from(new Set(data.map(d => d.month))), 
+      formats: Array.from(new Set(data.map(d => d.format))).sort(),
+      vendors: Array.from(new Set(data.map(d => d.vendor))).sort(),
+    };
+  }, [data]);
 
   // Filter Data
   const filteredData = useMemo(() => {
@@ -84,8 +108,10 @@ const App: React.FC = () => {
     }
     const totalGrp = filteredData.reduce((acc, curr) => acc + curr.grp, 0);
     const avgGrp = totalGrp / filteredData.length;
-    const totalOts = filteredData.reduce((acc, curr) => acc + curr.ots, 0); // in thousands
-    const uniqueSurfaces = new Set(filteredData.map(d => d.id)).size; 
+    const totalOts = filteredData.reduce((acc, curr) => acc + curr.ots, 0); 
+    
+    // Используем Set по адресу или ID для уникальности
+    const uniqueSurfaces = new Set(filteredData.map(d => d.address)).size; 
     
     const highGrpCount = filteredData.filter(d => d.grp > avgGrp).length;
     const percentHighGrp = (highGrpCount / filteredData.length) * 100;
@@ -96,6 +122,15 @@ const App: React.FC = () => {
   const handleFilterChange = (key: keyof FilterState, value: string) => {
     setFilters(prev => ({ ...prev, [key]: value }));
   };
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-100 flex-col gap-4">
+        <Loader2 className="h-10 w-10 animate-spin text-teal-600" />
+        <p className="text-gray-600 font-medium">Загрузка данных...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-100">
@@ -108,7 +143,6 @@ const App: React.FC = () => {
               OOH Media Analytics
             </h1>
             
-            {/* TABS BUTTONS */}
             <div className="flex gap-4">
                 <button
                   onClick={() => setActiveTab(TabView.ANALYTICS)}
