@@ -1,20 +1,10 @@
 {
   "rewrites": [
     {
-      "source": "/data/:match*",
-      "destination": "/data/:match*"
-    },
-    {
-      "source": "/(.*)",
+      "source": "/((?!data/|assets/|.*\\..*).*)",
       "destination": "/index.html"
     }
   ],
-  "headers": [
-    {
-      "source": "/data/(.*)",
-      "headers": [
-        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
-      ]
-    }
-  ]
+  "cleanUrls": true,
+  "framework": "vite"
 }
