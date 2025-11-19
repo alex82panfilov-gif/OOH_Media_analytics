@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build && mkdir -p dist/data && cp -r public/data/* dist/data/",
+    "build": "vite build && node copy-data.js",
     "preview": "vite preview"
   },
   "dependencies": {
