@@ -1,0 +1,10 @@
+{
+  "rewrites": [
+    {
+      "source": "/((?!data/|.*\\..*).*)",
+      "destination": "/index.html"
+    }
+  ],
+  "cleanUrls": true,
+  "framework": "vite"
+}
