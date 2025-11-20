@@ -58,6 +58,7 @@ const App: React.FC = () => {
     fetchData();
   }, []);
 
+  const [selectedMapPointId, setSelectedMapPointId] = useState<string | null>(null);
   const [filters, setFilters] = useState<FilterState>({
     city: 'Все', year: 'Все', month: 'Все', format: 'Все', vendor: 'Все',
   });
@@ -162,7 +163,19 @@ const App: React.FC = () => {
   const mapData = useMemo(() => {
      return filteredData.slice(0, 5000);
   }, [filteredData]);
-
+  // Данные для таблицы: 
+// 1. Если выбрана точка на карте -> показываем только её
+// 2. Иначе -> показываем топ 20, отсортированных по GRP (убывание)
+const tableData = useMemo(() => {
+  if (selectedMapPointId) {
+    return filteredData.filter(d => d.id === selectedMapPointId);
+  }
+  // Копируем массив, чтобы не мутировать исходный, сортируем и режем
+  return [...filteredData]
+    .sort((a, b) => b.grp - a.grp)
+    .slice(0, 20);
+}, [filteredData, selectedMapPointId]);
+  
 const kpis = useMemo(() => {
     if (filteredData.length === 0) return { 
       avgGrp: 0, totalOtsMillions: 0, uniqueSurfaces: 0, 
@@ -195,8 +208,9 @@ const kpis = useMemo(() => {
   }, [filteredData]);
 
   const handleFilterChange = (key: keyof FilterState, value: string) => {
-    setFilters(prev => ({ ...prev, [key]: value }));
-  };
+  setSelectedMapPointId(null); // Сбрасываем выбранную точку при смене фильтров
+  setFilters(prev => ({ ...prev, [key]: value }));
+};
 
   if (error) return <div className="p-10 text-red-600 text-center font-bold">Ошибка: {error}</div>;
   if (isLoading) return (<div className="min-h-screen flex items-center justify-center bg-gray-100 flex-col gap-4"><Loader2 className="h-10 w-10 animate-spin text-teal-600" /><p className="text-gray-600 font-medium">Загрузка данных...</p></div>);
@@ -263,18 +277,68 @@ const kpis = useMemo(() => {
           <div className="space-y-6 animate-in fade-in duration-500">
             {isMapReady ? (
               <>
-                <div className="relative"><MapViz data={mapData} />{filteredData.length > 5000 && (<div className="absolute top-2 right-2 bg-yellow-100 text-yellow-800 text-xs px-3 py-1 rounded-full shadow-md z-[1000] border border-yellow-300">Показано 5000 из {filteredData.length} точек</div>)}</div>
+                <div className="relative">
+                  {/* Передаем обработчики и ID выбранной точки */}
+                  <MapViz 
+                    data={mapData} 
+                    onPointClick={(id) => setSelectedMapPointId(id || null)}
+                    selectedPointId={selectedMapPointId}
+                  />
+                  {filteredData.length > 5000 && (
+                    <div className="absolute top-2 right-2 bg-yellow-100 text-yellow-800 text-xs px-3 py-1 rounded-full shadow-md z-[400] border border-yellow-300">
+                      Показано 5000 из {filteredData.length} точек
+                    </div>
+                  )}
+                </div>
+
                 <div className="bg-white shadow-sm rounded-lg border border-gray-200 overflow-hidden">
-                  <div className="px-4 py-3 border-b border-gray-200 bg-gray-50 flex justify-between items-center"><h3 className="text-sm font-medium text-gray-700">Детализация</h3><span className="text-xs text-gray-500">Всего: {filteredData.length}</span></div>
+                  <div className="px-4 py-3 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
+                    <div className="flex items-center gap-4">
+                      <h3 className="text-sm font-medium text-gray-700">Детализация</h3>
+                      {/* Кнопка сброса появляется только если выбрана точка */}
+                      {selectedMapPointId && (
+                        <button 
+                          onClick={() => setSelectedMapPointId(null)}
+                          className="text-xs bg-teal-100 text-teal-700 px-2 py-1 rounded hover:bg-teal-200 transition-colors font-medium"
+                        >
+                          Сбросить выбор ✕
+                        </button>
+                      )}
+                    </div>
+                    <span className="text-xs text-gray-500">
+                      {selectedMapPointId ? 'Выбрана 1 поверхность' : `Топ 20 по GRP (Всего: ${filteredData.length})`}
+                    </span>
+                  </div>
+                  
                   <div className="overflow-x-auto">
                     <table className="min-w-full divide-y divide-gray-200">
-                      <thead className="bg-gray-50"><tr><th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Город</th><th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Адрес</th><th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Продавец</th><th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Формат</th><th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">GRP</th><th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">OTS</th></tr></thead>
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Город</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Адрес</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Продавец</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Формат</th>
+                          <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase cursor-pointer" title="Сортировка по умолчанию">GRP ↓</th>
+                          <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">OTS</th>
+                        </tr>
+                      </thead>
                       <tbody className="bg-white divide-y divide-gray-200">
-                        {filteredData.slice(0, 20).map((record) => (
-                          <tr key={record.id} className="hover:bg-gray-50"><td className="px-6 py-2 text-xs text-gray-900">{record.city}</td><td className="px-6 py-2 text-xs text-gray-500 truncate max-w-xs" title={record.address}>{record.address}</td><td className="px-6 py-2 text-xs text-gray-500">{record.vendor}</td><td className="px-6 py-2 text-xs text-gray-500">{record.format}</td><td className="px-6 py-2 text-xs text-gray-900 text-right">{formatNumberRussian(record.grp)}</td><td className="px-6 py-2 text-xs text-gray-900 text-right">{formatNumberRussian(record.ots)}</td></tr>
+                        {/* Используем tableData вместо filteredData */}
+                        {tableData.map((record) => (
+                          <tr key={record.id} className={`hover:bg-gray-50 transition-colors ${selectedMapPointId === record.id ? 'bg-blue-50' : ''}`}>
+                            <td className="px-6 py-2 text-xs text-gray-900">{record.city}</td>
+                            <td className="px-6 py-2 text-xs text-gray-500 truncate max-w-xs" title={record.address}>{record.address}</td>
+                            <td className="px-6 py-2 text-xs text-gray-500">{record.vendor}</td>
+                            <td className="px-6 py-2 text-xs text-gray-500">{record.format}</td>
+                            <td className="px-6 py-2 text-xs text-gray-900 text-right font-medium">{formatNumberRussian(record.grp)}</td>
+                            <td className="px-6 py-2 text-xs text-gray-900 text-right">{formatNumberRussian(record.ots)}</td>
+                          </tr>
                         ))}
                       </tbody>
                     </table>
+                    {tableData.length === 0 && (
+                      <div className="p-4 text-center text-gray-500 text-sm">Нет данных для отображения</div>
+                    )}
                   </div>
                 </div>
               </>
@@ -288,9 +352,5 @@ const kpis = useMemo(() => {
             )}
           </div>
         )}
-      </main>
-    </div>
-  );
-};
 
-export default App;
+  export default App;
