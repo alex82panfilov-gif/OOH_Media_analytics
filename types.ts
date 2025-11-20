@@ -10,6 +10,7 @@ export interface OOHRecord {
   ots: number;
   lat: number;
   lng: number;
+  dateLabel: string; // Новое поле: "окт 2025"
 }
 
 export interface FilterState {
@@ -20,14 +21,7 @@ export interface FilterState {
   vendor: string;
 }
 
-export interface KPIData {
-  avgGrp: number;
-  totalOts: number;
-  uniqueSurfaces: number;
-  percentAboveAvg: number;
-}
-
 export enum TabView {
-  ANALYTICS = 'ANALYTICS',
-  MAP = 'MAP'
+  ANALYTICS = 'analytics',
+  MAP = 'map'
 }
