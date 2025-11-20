@@ -37,7 +37,8 @@ export const loadRealData = async (): Promise<OOHRecord[]> => {
                 city: String(vals[5] || ''),
                 year: Number(vals[4]) || 0,
                 month: String(vals[8] || ''),
-                vendor: String(vals[11] || ''),
+                // Если значение пустое или состоит из пробелов -> ставим заглушку, иначе оставляем как есть
+                vendor: String(vals[11] || '').trim() || 'Неизвестный продавец',,
                 format: String(vals[14] || ''),
                 grp: Number(vals[17]) || 0,
                 ots: Number(vals[18]) || 0,
