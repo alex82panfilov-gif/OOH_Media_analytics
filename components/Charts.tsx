@@ -191,38 +191,94 @@ export const FormatBarChart: React.FC<ChartProps> = ({ data, onFilterClick }) =>
   );
 };
 
-// --- 3. TREEMAP ПРОДАВЦОВ (Без изменений) ---
-const COLORS = ['#0ea5e9', '#22c55e', '#eab308', '#f97316', '#ef4444', '#a855f7', '#ec4899', '#6366f1'];
+// --- 3. TREEMAP ПРОДАВЦОВ (ОБНОВЛЕННЫЙ: Градиент + Проценты) ---
+
+// Палитра "Корпоративный синий/грифельный": от темного к светлому
+// Самый крупный сегмент будет самым темным
+const SHADES = [
+  '#1e293b', // Slate 800 (Почти черный)
+  '#334155', // Slate 700
+  '#475569', // Slate 600
+  '#57534e', // Stone 600 (Для контраста)
+  '#64748b', // Slate 500
+  '#71717a', // Zinc 500
+  '#94a3b8', // Slate 400 (Светлее)
+  '#a1a1aa', // Zinc 400
+];
 
 export const VendorTreemap: React.FC<ChartProps> = ({ data, onFilterClick }) => {
   const chartData = useMemo(() => {
     const grouped: Record<string, number> = {};
+    let totalCount = 0;
+
+    // 1. Считаем количество и общую сумму
     data.forEach(d => {
       if (!grouped[d.vendor]) grouped[d.vendor] = 0;
       grouped[d.vendor] += 1; 
+      totalCount += 1;
     });
 
+    // 2. Формируем массив с процентами и цветами
     return Object.keys(grouped)
-      .map((key, index) => ({ 
-        name: key, 
-        size: grouped[key], 
-        fill: COLORS[index % COLORS.length] 
-      }))
-      .sort((a, b) => b.size - a.size);
+      .map((key) => {
+        const count = grouped[key];
+        const percent = totalCount > 0 ? ((count / totalCount) * 100).toFixed(1) : '0';
+        
+        return { 
+          name: key, 
+          size: count,
+          percent: percent // Добавляем поле процента в данные
+        };
+      })
+      .sort((a, b) => b.size - a.size) // Сортируем от большего к меньшему
+      .map((item, index) => ({
+        ...item,
+        // Назначаем цвет: чем выше в списке (больше доля), тем темнее цвет
+        fill: SHADES[index % SHADES.length]
+      }));
   }, [data]);
 
+  // Кастомный блок внутри прямоугольника
   const CustomContent = (props: any) => {
-    const { x, y, width, height, name, size, value } = props;
-    const displayValue = size || value || 0;
+    const { x, y, width, height, name, size, percent, fill } = props;
     
-    if (width < 40 || height < 40) return null;
+    // Если прямоугольник слишком маленький, не рисуем текст
+    if (width < 50 || height < 40) return null;
     
     return (
       <g>
-        <rect x={x} y={y} width={width} height={height} fill={props.fill} stroke="#fff" strokeWidth={2} />
-        <text x={x + 6} y={y + 18} fill="#fff" fontSize={12} fontWeight="bold">{name}</text>
-        <text x={x + 6} y={y + 34} fill="rgba(255,255,255,0.9)" fontSize={10}>
-          {displayValue.toLocaleString('ru-RU')} шт.
+        {/* Прямоугольник */}
+        <rect 
+          x={x} 
+          y={y} 
+          width={width} 
+          height={height} 
+          fill={fill} 
+          stroke="#fff" 
+          strokeWidth={2} 
+          rx={4} // Скругление углов как на скриншоте
+          ry={4}
+        />
+        {/* Название продавца */}
+        <text 
+          x={x + 8} 
+          y={y + 20} 
+          fill="#fff" 
+          fontSize={12} 
+          fontWeight="bold"
+          style={{ pointerEvents: 'none' }} // Чтобы клик проходил сквозь текст
+        >
+          {name}
+        </text>
+        {/* Количество и процент */}
+        <text 
+          x={x + 8} 
+          y={y + 38} 
+          fill="rgba(255,255,255,0.8)" 
+          fontSize={11}
+          style={{ pointerEvents: 'none' }}
+        >
+          {size.toLocaleString('ru-RU')} шт. ({percent}%)
         </text>
       </g>
     );
@@ -230,14 +286,13 @@ export const VendorTreemap: React.FC<ChartProps> = ({ data, onFilterClick }) => 
 
   return (
     <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 h-[300px] flex flex-col">
-      <h3 className="text-lg font-semibold text-gray-800 mb-4">Распределение по продавцам (кол-во поверхностей)</h3>
+      <h3 className="text-lg font-semibold text-gray-800 mb-4">Распределение по продавцам</h3>
       <div className="flex-grow">
         <ResponsiveContainer width="100%" height="100%">
           <Treemap
             data={chartData}
             dataKey="size"
             stroke="#fff"
-            fill="#8884d8"
             content={<CustomContent />}
             onClick={(e) => {
               if (e && e.name) {
@@ -247,8 +302,20 @@ export const VendorTreemap: React.FC<ChartProps> = ({ data, onFilterClick }) => 
             className="cursor-pointer"
           >
             <Tooltip 
-              formatter={(val: number) => [val.toLocaleString('ru-RU') + ' шт.', 'Поверхностей']}
-              contentStyle={{ borderRadius: '8px', border: 'none', padding: '8px 12px' }}
+              // Кастомный тултип, чтобы показать проценты при наведении
+              content={({ active, payload }) => {
+                if (active && payload && payload.length) {
+                  const data = payload[0].payload;
+                  return (
+                    <div className="bg-white p-3 border border-gray-200 shadow-lg rounded-md text-sm">
+                      <p className="font-bold text-gray-900 mb-1">{data.name}</p>
+                      <p className="text-gray-600">Поверхностей: <span className="font-medium text-gray-900">{data.size.toLocaleString('ru-RU')}</span></p>
+                      <p className="text-gray-600">Доля рынка: <span className="font-medium text-teal-600">{data.percent}%</span></p>
+                    </div>
+                  );
+                }
+                return null;
+              }}
             />
           </Treemap>
         </ResponsiveContainer>
