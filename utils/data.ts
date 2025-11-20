@@ -1,7 +1,6 @@
 import { OOHRecord } from '../types';
 import { parquetRead } from 'hyparquet';
 
-// Список файлов. Если какого-то файла нет на сервере, скрипт теперь просто пропустит его.
 const FILE_LIST = [
   '2024-01.parquet', '2024-02.parquet', '2024-03.parquet', '2024-04.parquet',
   '2024-05.parquet', '2024-06.parquet', '2024-07.parquet', '2024-08.parquet',
@@ -15,29 +14,20 @@ export const loadRealData = async (): Promise<OOHRecord[]> => {
   const allRecords: OOHRecord[] = [];
   if (typeof window === 'undefined') return [];
   
-  console.log("🚀 Запуск безопасной загрузки данных...");
+  console.log("🚀 Загрузка данных по индексам колонок...");
 
-  // Используем map, чтобы запустить все запросы параллельно
   const promises = FILE_LIST.map(async (filename) => {
     try {
+      // Убрали проверку content-type, чтобы Vercel не блокировал файлы
       const response = await fetch(`/data/${filename}`);
       
-      // Если файл не найден (404) или это HTML (ошибка Vercel), пропускаем
-      if (!response.ok || response.headers.get('content-type')?.includes('text/html')) {
-        console.warn(`⚠️ Пропуск файла (нет на сервере или ошибка): ${filename}`);
+      if (!response.ok) {
+        console.warn(`⚠️ Файл не найден (404): ${filename}`);
         return [];
       }
 
       const arrayBuffer = await response.arrayBuffer();
       
-      // Дополнительная проверка: Parquet всегда начинается с 'PAR1'
-      const textDecoder = new TextDecoder();
-      const header = textDecoder.decode(arrayBuffer.slice(0, 4));
-      if (header !== 'PAR1') {
-        console.warn(`⚠️ Файл ${filename} поврежден или не является Parquet (Header: ${header})`);
-        return [];
-      }
-
       return new Promise<OOHRecord[]>((resolve) => {
         parquetRead({
           file: arrayBuffer,
@@ -47,35 +37,46 @@ export const loadRealData = async (): Promise<OOHRecord[]> => {
               return;
             }
 
-            // Вывод колонок для отладки (то, что я просил в Шаге 1)
+            // Вывод первой строки для проверки (в консоли будет видно реальные данные)
             if (allRecords.length === 0) {
-               console.log(`✅ УСПЕШНО ЧИТАЕМ ${filename}`);
-               console.log("📋 КОЛОНКИ:", Object.keys(rawData[0]));
+               console.log(`✅ Читаем ${filename}. Пример строки:`, rawData[0]);
             }
 
             const mapped = rawData.map((row, index) => {
-              // Функция-помощник: ищет значение, игнорируя регистр букв
-              const findKey = (target: string) => {
-                const key = Object.keys(row).find(k => k.toLowerCase().includes(target.toLowerCase()));
-                return key ? row[key] : undefined;
-              };
+              // ВАЖНО: Маппинг по индексам из вашего Excel (A=0, B=1, C=2...)
+              // Если row пришел как объект, берем values. Если как массив - берем так.
+              const vals = Array.isArray(row) ? row : Object.values(row);
 
               return {
                 id: `ID-${index}-${Math.random()}`,
-                // Пытаемся найти по ключевым словам из вашего Excel
-                address: String(findKey('Адрес') || findKey('Address') || ''),
-                city: String(findKey('Город') || findKey('City') || ''),
-                year: Number(findKey('Год') || findKey('Year')) || 0,
-                month: String(findKey('Месяц') || findKey('Month') || ''),
-                vendor: String(findKey('Продавец') || findKey('Vendor') || ''),
-                format: String(findKey('Формат') || findKey('Format') || ''),
                 
-                grp: Number(findKey('GRP') || 0),
-                ots: Number(findKey('OTS') || 0),
+                // 0 = A (Адрес)
+                address: String(vals[0] || ''),
                 
-                // Для координат ищем "Широта"/"Lat"
-                lat: parseCoord(findKey('Широта') || findKey('Lat') || 55.75),
-                lng: parseCoord(findKey('Долгота') || findKey('Lon') || 37.61),
+                // 5 = F (Город)
+                city: String(vals[5] || ''),
+                
+                // 4 = E (Год)
+                year: Number(vals[4]) || 0,
+                
+                // 8 = I (Месяц)
+                month: String(vals[8] || ''),
+                
+                // 11 = L (Продавец)
+                vendor: String(vals[11] || ''),
+                
+                // 14 = O (Формат)
+                format: String(vals[14] || ''),
+                
+                // 17 = R (GRP)
+                grp: Number(vals[17]) || 0,
+                
+                // 18 = S (OTS)
+                ots: Number(vals[18]) || 0,
+                
+                // 15 = P (Широта), 7 = H (Долгота)
+                lat: parseCoord(vals[15] || 55.75),
+                lng: parseCoord(vals[7] || 37.61),
               };
             });
             resolve(mapped);
@@ -83,27 +84,24 @@ export const loadRealData = async (): Promise<OOHRecord[]> => {
         });
       });
     } catch (e) {
-      console.error(`❌ Ошибка обработки ${filename}:`, e);
-      return []; // Возвращаем пустой массив, чтобы не ломать остальные файлы
+      console.error(`❌ Ошибка ${filename}:`, e);
+      return [];
     }
   });
 
-  // Ждем завершения всех загрузок (даже если были ошибки)
   const results = await Promise.all(promises);
-  
-  // Собираем всё в одну кучу
   results.forEach(arr => allRecords.push(...arr));
 
-  console.log(`🏁 ИТОГО: Загружено ${allRecords.length} строк из ${results.filter(r => r.length > 0).length} файлов.`);
+  console.log(`🏁 ИТОГО: Загружено ${allRecords.length} строк.`);
   return allRecords;
 };
 
-// Помощник для координат (заменяет запятую на точку)
 const parseCoord = (val: any): number => {
   if (typeof val === 'string') return parseFloat(val.replace(',', '.'));
   return Number(val);
 };
 
+// Функции форматирования остаются без изменений
 export const formatNumberRussian = (num: number, decimals = 2): string => {
   return num.toLocaleString('ru-RU', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
 };
