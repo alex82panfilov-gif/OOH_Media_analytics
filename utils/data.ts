@@ -39,7 +39,7 @@ export const loadRealData = async (): Promise<OOHRecord[]> => {
                 month: String(vals[8] || ''),
                 // Если значение пустое или состоит из пробелов -> ставим заглушку, иначе оставляем как есть
                 vendor: String(vals[11] || '').trim() || 'Неизвестный продавец',
-                format: String(vals[14] || ''),
+                format: String(vals[21] || ''),
                 grp: Number(vals[17]) || 0,
                 ots: Number(vals[18]) || 0,
                 // Колонка U (индекс 20). Если её нет (старый файл), будет пустая строка
