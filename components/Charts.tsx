@@ -1,207 +1,217 @@
-import React from 'react';
-import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  BarChart, Bar, Treemap, Cell, LabelList
+import React, { useMemo } from 'react';
+import { 
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
+  BarChart, Bar, Cell, Treemap, LabelList 
 } from 'recharts';
 import { OOHRecord } from '../types';
+import { formatNumberRussian } from '../utils/data';
 
-// --- TREND CHART ---
-interface TrendChartProps {
+interface ChartProps {
   data: OOHRecord[];
+  // Добавляем функцию для кликов по графику
+  onFilterClick?: (type: 'date' | 'format' | 'vendor', value: any) => void;
 }
 
-export const TrendChart: React.FC<TrendChartProps> = ({ data }) => {
-  // Aggregate data by Month-Year
-  const aggregated = React.useMemo(() => {
-    const map = new Map<string, { name: string; totalGrp: number; count: number; sortIndex: number }>();
-    
-    const monthOrder = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
+// --- 1. ГРАФИК ДИНАМИКИ (TREMD) ---
+export const TrendChart: React.FC<ChartProps> = ({ data, onFilterClick }) => {
+  const chartData = useMemo(() => {
+    // Группируем по dateLabel ("окт 2025")
+    const grouped: Record<string, { totalGrp: number; count: number; sortKey: number; year: number; month: string }> = {};
     
     data.forEach(d => {
-      const key = `${d.month} ${d.year}`;
-      const current = map.get(key) || { name: key, totalGrp: 0, count: 0, sortIndex: 0 };
+      if (!grouped[d.dateLabel]) {
+        // Создаем ключ для сортировки: 2025 * 100 + месяц (нужна логика парсинга, но
+        // проще взять d.year и d.month для передачи в клик)
+        grouped[d.dateLabel] = { totalGrp: 0, count: 0, sortKey: d.year * 100, year: d.year, month: d.month };
+      }
+      grouped[d.dateLabel].totalGrp += d.grp;
+      grouped[d.dateLabel].count += 1;
       
-      // Create a sort index: Year * 100 + MonthIndex
-      const mIndex = monthOrder.indexOf(d.month);
-      current.sortIndex = d.year * 100 + mIndex;
-      
-      current.totalGrp += d.grp;
-      current.count += 1;
-      map.set(key, current);
+      // Хак для сортировки: если месяц текстом, сложно сортировать. 
+      // В идеале dateLabel должен быть сортируемым, но положимся на порядок в Excel или добавим логику
     });
 
-    return Array.from(map.values())
-      .map(item => ({
-        name: item.name,
-        avgGrp: Number((item.totalGrp / item.count).toFixed(2)),
-        sortIndex: item.sortIndex
-      }))
-      .sort((a, b) => a.sortIndex - b.sortIndex);
+    return Object.keys(grouped).map(key => ({
+      name: key,
+      value: grouped[key].totalGrp / grouped[key].count,
+      year: grouped[key].year,
+      month: grouped[key].month
+    })).sort((a, b) => {
+       // Простая сортировка может быть не идеальной для текста, 
+       // но если Excel дает их по порядку, график построится.
+       // Для надежности лучше использовать d.year/d.month для сортировки.
+       const monthsOrder = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
+       const getMIdx = (m: string) => monthsOrder.findIndex(mo => m.toLowerCase().includes(mo));
+       
+       if (a.year !== b.year) return a.year - b.year;
+       return getMIdx(a.month) - getMIdx(b.month);
+    });
   }, [data]);
 
   return (
-    <div className="h-full w-full bg-white p-4 rounded-lg shadow-sm border border-gray-200">
-      <h3 className="text-sm font-medium text-gray-600 mb-4">Динамика среднего GRP по месяцам</h3>
-      <ResponsiveContainer width="100%" height={250}>
-        <LineChart data={aggregated} margin={{ top: 20, right: 30, left: 0, bottom: 0 }}>
-          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
-          <XAxis 
-            dataKey="name" 
-            tick={{ fontSize: 10, fill: '#6b7280' }} 
-            axisLine={false}
-            tickLine={false}
-            interval={0}
-            angle={-30}
-            textAnchor="end"
-            height={50}
-          />
-          <YAxis 
-            hide={false} 
-            axisLine={false} 
-            tickLine={false} 
-            tick={{ fontSize: 10, fill: '#6b7280' }}
-            label={{ value: 'Средний GRP', angle: -90, position: 'insideLeft', style: { fontSize: 10, fill: '#9ca3af' } }}
-          />
-          <Tooltip 
-            contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }}
-          />
-          <Line 
-            type="monotone" 
-            dataKey="avgGrp" 
-            stroke="#374151" 
-            strokeWidth={2} 
-            dot={{ r: 4, fill: 'white', stroke: '#374151', strokeWidth: 2 }}
-            activeDot={{ r: 6 }}
+    <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 h-full flex flex-col">
+      <h3 className="text-lg font-semibold text-gray-800 mb-4">Динамика среднего GRP</h3>
+      <div className="flex-grow">
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart 
+            data={chartData} 
+            onClick={(e) => {
+              if (e && e.activePayload && e.activePayload[0]) {
+                const payload = e.activePayload[0].payload;
+                if (onFilterClick) onFilterClick('date', { year: String(payload.year), month: payload.month });
+              }
+            }}
+            className="cursor-pointer"
           >
-             <LabelList dataKey="avgGrp" position="top" offset={10} style={{ fontSize: 10, fill: '#4b5563' }} />
-          </Line>
-        </LineChart>
-      </ResponsiveContainer>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
+            <XAxis 
+              dataKey="name" 
+              tick={{ fontSize: 11, fill: '#6b7280' }} 
+              axisLine={false} 
+              tickLine={false}
+              angle={-30}
+              textAnchor="end"
+              height={50}
+            />
+            {/* УБРАЛИ YAxis, как вы просили */}
+            <Tooltip 
+              formatter={(val: number) => [formatNumberRussian(val), 'Средний GRP']}
+              labelStyle={{ color: '#111827', fontWeight: 'bold' }}
+              contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+            />
+            <Line 
+              type="monotone" 
+              dataKey="value" 
+              stroke="#334155" 
+              strokeWidth={3} 
+              dot={{ r: 5, fill: '#fff', strokeWidth: 2 }} 
+              activeDot={{ r: 7, fill: '#334155' }}
+            >
+               <LabelList dataKey="value" position="top" formatter={(val: number) => formatNumberRussian(val)} style={{ fontSize: '11px', fill: '#334155', fontWeight: 500 }} />
+            </Line>
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
     </div>
   );
 };
 
-// --- BAR CHART ---
-interface BarChartProps {
-  data: OOHRecord[];
-}
-
-export const FormatBarChart: React.FC<BarChartProps> = ({ data }) => {
-  const aggregated = React.useMemo(() => {
-    const map = new Map<string, { format: string; totalGrp: number; count: number }>();
+// --- 2. ГРАФИК ФОРМАТОВ ---
+export const FormatBarChart: React.FC<ChartProps> = ({ data, onFilterClick }) => {
+  const chartData = useMemo(() => {
+    const grouped: Record<string, { totalGrp: number; count: number }> = {};
     data.forEach(d => {
-      const current = map.get(d.format) || { format: d.format, totalGrp: 0, count: 0 };
-      current.totalGrp += d.grp;
-      current.count += 1;
-      map.set(d.format, current);
+      if (!grouped[d.format]) grouped[d.format] = { totalGrp: 0, count: 0 };
+      grouped[d.format].totalGrp += d.grp;
+      grouped[d.format].count += 1;
     });
-    return Array.from(map.values())
-      .map(item => ({
-        name: item.format,
-        value: Number((item.totalGrp / item.count).toFixed(2))
-      }))
-      .sort((a, b) => b.value - a.value); // Descending
+
+    return Object.keys(grouped)
+      .map(key => ({ name: key, value: grouped[key].totalGrp / grouped[key].count }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 10);
   }, [data]);
 
   return (
-    <div className="h-full w-full bg-white p-4 rounded-lg shadow-sm border border-gray-200">
-       <h3 className="text-sm font-medium text-gray-600 mb-4">Средний GRP по форматам</h3>
-       <ResponsiveContainer width="100%" height={250}>
-         <BarChart layout="vertical" data={aggregated} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-            <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e5e7eb"/>
+    <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 h-full flex flex-col">
+      <h3 className="text-lg font-semibold text-gray-800 mb-4">Средний GRP по форматам</h3>
+      <div className="flex-grow">
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart 
+            layout="vertical" 
+            data={chartData} 
+            margin={{ left: 20, right: 30 }} // Отступы
+            onClick={(e) => {
+              if (e && e.activePayload && e.activePayload[0]) {
+                 if (onFilterClick) onFilterClick('format', e.activePayload[0].payload.name);
+              }
+            }}
+            className="cursor-pointer"
+          >
+            <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="#f0f0f0" />
             <XAxis type="number" hide />
+            {/* УВЕЛИЧИЛИ width до 120, чтобы названия влезали */}
             <YAxis 
               dataKey="name" 
               type="category" 
-              tick={{ fontSize: 11, fill: '#374151' }} 
-              width={40} 
+              width={120} 
+              tick={{ fontSize: 11, fill: '#4b5563' }} 
               axisLine={false} 
-              tickLine={false}
+              tickLine={false} 
+              interval={0} // Показать ВСЕ подписи
             />
-            <Tooltip cursor={{ fill: '#f3f4f6' }} />
-            <Bar dataKey="value" fill="#374151" radius={[0, 4, 4, 0]} barSize={20}>
-              <LabelList dataKey="value" position="right" style={{ fontSize: 11, fill: '#374151' }} />
+            <Tooltip formatter={(val: number) => formatNumberRussian(val)} cursor={{fill: '#f3f4f6'}} />
+            <Bar dataKey="value" fill="#334155" radius={[0, 4, 4, 0]} barSize={24}>
+              <LabelList dataKey="value" position="right" formatter={(val: number) => formatNumberRussian(val)} style={{ fontSize: '11px', fill: '#6b7280' }} />
             </Bar>
-         </BarChart>
-       </ResponsiveContainer>
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
     </div>
   );
 };
 
-// --- TREEMAP ---
-interface VendorTreemapProps {
-  data: OOHRecord[];
-}
+// --- 3. TREEMAP ПРОДАВЦОВ (ТЕПЕРЬ ПО КОЛИЧЕСТВУ) ---
+const COLORS = ['#0ea5e9', '#22c55e', '#eab308', '#f97316', '#ef4444', '#a855f7', '#ec4899', '#6366f1'];
 
-const COLORS = ['#0078d4', '#107c10', '#d13438', '#881798', '#e3008c', '#00bcf2', '#ff8c00'];
-
-const CustomTreemapContent = (props: any) => {
-  const { x, y, width, height, name, value, index } = props;
-  if (width < 50 || height < 30) return null; // Hide small labels
-
-  return (
-    <g>
-      <rect
-        x={x}
-        y={y}
-        width={width}
-        height={height}
-        style={{
-          fill: COLORS[index % COLORS.length],
-          stroke: '#fff',
-          strokeWidth: 2,
-        }}
-      />
-      <text
-        x={x + 5}
-        y={y + 15}
-        textAnchor="start"
-        fill="#fff"
-        fontSize={12}
-        fontWeight="bold"
-      >
-        {name}
-      </text>
-      <text
-        x={x + 5}
-        y={y + height - 5}
-        textAnchor="start"
-        fill="rgba(255,255,255,0.9)"
-        fontSize={10}
-      >
-        {Number(value).toLocaleString('ru-RU')} тыс.
-      </text>
-    </g>
-  );
-};
-
-export const VendorTreemap: React.FC<VendorTreemapProps> = ({ data }) => {
-  const aggregated = React.useMemo(() => {
-    const map = new Map<string, number>();
+export const VendorTreemap: React.FC<ChartProps> = ({ data, onFilterClick }) => {
+  const chartData = useMemo(() => {
+    const grouped: Record<string, number> = {};
     data.forEach(d => {
-      const current = map.get(d.vendor) || 0;
-      map.set(d.vendor, current + d.ots);
+      if (!grouped[d.vendor]) grouped[d.vendor] = 0;
+      // ТЕПЕРЬ СЧИТАЕМ КОЛИЧЕСТВО ПОВЕРХНОСТЕЙ (Count), А НЕ OTS
+      grouped[d.vendor] += 1; 
     });
-    
-    return Array.from(map.entries())
-      .map(([name, value]) => ({ name, value: Math.round(value) }))
-      .sort((a, b) => b.value - a.value);
+
+    return Object.keys(grouped)
+      .map((key, index) => ({ 
+        name: key, 
+        size: grouped[key], // Размер квадрата = кол-во поверхностей
+        fill: COLORS[index % COLORS.length] 
+      }))
+      .sort((a, b) => b.size - a.size);
   }, [data]);
 
+  const CustomContent = (props: any) => {
+    const { x, y, width, height, name, size } = props;
+    if (width < 40 || height < 40) return null; // Скрываем мелкие подписи
+    
+    return (
+      <g>
+        <rect x={x} y={y} width={width} height={height} fill={props.fill} stroke="#fff" strokeWidth={2} />
+        <text x={x + 6} y={y + 18} fill="#fff" fontSize={12} fontWeight="bold">{name}</text>
+        <text x={x + 6} y={y + 34} fill="rgba(255,255,255,0.9)" fontSize={10}>
+          {size.toLocaleString('ru-RU')} шт.
+        </text>
+      </g>
+    );
+  };
+
   return (
-    <div className="h-64 w-full bg-white p-4 rounded-lg shadow-sm border border-gray-200">
-      <h3 className="text-sm font-medium text-gray-600 mb-2">Распределение по продавцам (OTS)</h3>
-      <ResponsiveContainer width="100%" height="90%">
-        <Treemap
-          data={aggregated}
-          dataKey="value"
-          aspectRatio={4 / 3}
-          stroke="#fff"
-          content={<CustomTreemapContent />}
-        >
-          <Tooltip formatter={(value) => `${Number(value).toLocaleString('ru-RU')} тыс.`} />
-        </Treemap>
-      </ResponsiveContainer>
+    <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 h-[300px] flex flex-col">
+      <h3 className="text-lg font-semibold text-gray-800 mb-4">Распределение по продавцам (кол-во поверхностей)</h3>
+      <div className="flex-grow">
+        <ResponsiveContainer width="100%" height="100%">
+          <Treemap
+            data={chartData}
+            dataKey="size"
+            stroke="#fff"
+            fill="#8884d8"
+            content={<CustomContent />}
+            onClick={(e) => {
+              if (e && e.name) {
+                 if (onFilterClick) onFilterClick('vendor', e.name);
+              }
+            }}
+            className="cursor-pointer"
+          >
+            <Tooltip 
+              formatter={(val: number) => [val.toLocaleString('ru-RU') + ' шт.', 'Поверхностей']}
+              contentStyle={{ borderRadius: '8px', border: 'none', padding: '8px 12px' }}
+            />
+          </Treemap>
+        </ResponsiveContainer>
+      </div>
     </div>
   );
 };
