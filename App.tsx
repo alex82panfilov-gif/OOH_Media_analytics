@@ -3,7 +3,8 @@ import { OOHRecord, FilterState, TabView } from './types';
 import { loadRealData, formatNumberRussian, formatCompactRussian } from './utils/data';
 import { TrendChart, FormatBarChart, VendorTreemap } from './components/Charts';
 import { MapViz } from './components/MapViz';
-import { Loader2, AlertTriangle, Map as MapIcon, Lock } from 'lucide-react';
+import { exportToExcel } from './utils/export'; // Импорт функции экспорта
+import { Loader2, AlertTriangle, Map as MapIcon, Lock, Download } from 'lucide-react'; // Добавили Download
 
 const KPI_CARD_CLASS = "bg-white p-6 rounded-lg shadow-sm border border-gray-200 flex flex-col items-center justify-center text-center h-32 transition-all hover:shadow-md";
 
@@ -40,6 +41,9 @@ const App: React.FC = () => {
   const [data, setData] = useState<OOHRecord[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  
+  // Состояние выбранной точки на карте
+  const [selectedMapPointId, setSelectedMapPointId] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -58,15 +62,12 @@ const App: React.FC = () => {
     fetchData();
   }, []);
 
-  const [selectedMapPointId, setSelectedMapPointId] = useState<string | null>(null);
   const [filters, setFilters] = useState<FilterState>({
     city: 'Все', year: 'Все', month: 'Все', format: 'Все', vendor: 'Все',
   });
 
-  // Обработчик кликов по графикам
   const handleChartClick = (type: 'date' | 'format' | 'vendor', value: any) => {
     if (type === 'date') {
-      // При клике на график динамики устанавливаем и Год, и Месяц
       setFilters(prev => ({ ...prev, year: value.year, month: value.month }));
     } else if (type === 'format') {
       setFilters(prev => ({ ...prev, format: value }));
@@ -77,63 +78,31 @@ const App: React.FC = () => {
 
   const isMapReady = filters.city !== 'Все' && filters.year !== 'Все' && filters.month !== 'Все';
 
-// --- ОБНОВЛЕННАЯ ЛОГИКА ФИЛЬТРАЦИИ ---
   const options = useMemo(() => {
     if (data.length === 0) {
       return { cities: [], years: [], months: [], formats: [], vendors: [] };
     }
-
-    // Создаем Sets для сбора уникальных значений
     const cities = new Set<string>();
     const years = new Set<string>();
     const months = new Set<string>();
     const formats = new Set<string>();
     const vendors = new Set<string>();
 
-    // Проходим по всем данным ОДИН раз
     data.forEach(d => {
       const strYear = String(d.year);
-
-      // Проверяем совпадение строки с текущими фильтрами
-      // Если фильтр "Все" или значение совпадает — считаем, что условие выполнено
       const matchCity = filters.city === 'Все' || d.city === filters.city;
       const matchYear = filters.year === 'Все' || strYear === filters.year;
       const matchMonth = filters.month === 'Все' || d.month === filters.month;
       const matchFormat = filters.format === 'Все' || d.format === filters.format;
       const matchVendor = filters.vendor === 'Все' || d.vendor === filters.vendor;
 
-      // ЛОГИКА:
-      // Чтобы добавить Город в список доступных, запись должна подходить по ВСЕМ остальным критериям (Год, Месяц, Формат, Продавец),
-      // но нам не важно, совпадает ли сам Город (чтобы список не схлопывался до одного выбранного значения).
-      
-      // 1. Собираем Города (учитываем все фильтры, кроме City)
-      if (matchYear && matchMonth && matchFormat && matchVendor) {
-        cities.add(d.city);
-      }
-
-      // 2. Собираем Года (учитываем все, кроме Year)
-      if (matchCity && matchMonth && matchFormat && matchVendor) {
-        years.add(strYear);
-      }
-
-      // 3. Собираем Месяцы (учитываем все, кроме Month)
-      if (matchCity && matchYear && matchFormat && matchVendor) {
-        months.add(d.month);
-      }
-
-      // 4. Собираем Форматы (учитываем все, кроме Format)
-      if (matchCity && matchYear && matchMonth && matchVendor) {
-        formats.add(d.format);
-      }
-
-      // 5. Собираем Продавцов (учитываем все, кроме Vendor)
-      if (matchCity && matchYear && matchMonth && matchFormat) {
-        vendors.add(d.vendor);
-      }
+      if (matchYear && matchMonth && matchFormat && matchVendor) cities.add(d.city);
+      if (matchCity && matchMonth && matchFormat && matchVendor) years.add(strYear);
+      if (matchCity && matchYear && matchFormat && matchVendor) months.add(d.month);
+      if (matchCity && matchYear && matchMonth && matchVendor) formats.add(d.format);
+      if (matchCity && matchYear && matchMonth && matchFormat) vendors.add(d.vendor);
     });
 
-    // Функция сортировки месяцев (опционально, чтобы не было хаоса)
-    // Можно использовать упрощенный порядок из Charts, но здесь сделаем простой
     const monthOrder = ['январь', 'февраль', 'март', 'апрель', 'май', 'июнь', 'июль', 'август', 'сентябрь', 'октябрь', 'ноябрь', 'декабрь'];
     const sortMonths = (a: string, b: string) => {
        const ia = monthOrder.findIndex(m => a.toLowerCase().includes(m));
@@ -144,11 +113,12 @@ const App: React.FC = () => {
     return {
       cities: Array.from(cities).sort(),
       years: Array.from(years).sort(),
-      months: Array.from(months).sort(sortMonths), // Применяем сортировку месяцев
+      months: Array.from(months).sort(sortMonths),
       formats: Array.from(formats).sort(),
       vendors: Array.from(vendors).sort(),
     };
-  }, [data, filters]); // Важно: пересчитываем при изменении data И filters
+  }, [data, filters]);
+
   const filteredData = useMemo(() => {
     return data.filter(d => {
       if (filters.city !== 'Все' && d.city !== filters.city) return false;
@@ -163,20 +133,17 @@ const App: React.FC = () => {
   const mapData = useMemo(() => {
      return filteredData.slice(0, 5000);
   }, [filteredData]);
-  // Данные для таблицы: 
-// 1. Если выбрана точка на карте -> показываем только её
-// 2. Иначе -> показываем топ 20, отсортированных по GRP (убывание)
-const tableData = useMemo(() => {
-  if (selectedMapPointId) {
-    return filteredData.filter(d => d.id === selectedMapPointId);
-  }
-  // Копируем массив, чтобы не мутировать исходный, сортируем и режем
-  return [...filteredData]
-    .sort((a, b) => b.grp - a.grp)
-    .slice(0, 20);
-}, [filteredData, selectedMapPointId]);
+
+  const tableData = useMemo(() => {
+    if (selectedMapPointId) {
+      return filteredData.filter(d => d.id === selectedMapPointId);
+    }
+    return [...filteredData]
+      .sort((a, b) => b.grp - a.grp)
+      .slice(0, 20);
+  }, [filteredData, selectedMapPointId]);
   
-const kpis = useMemo(() => {
+  const kpis = useMemo(() => {
     if (filteredData.length === 0) return { 
       avgGrp: 0, totalOtsMillions: 0, uniqueSurfaces: 0, 
       totalSurfaces: 0, percentHighGrp: 0, 
@@ -185,39 +152,51 @@ const kpis = useMemo(() => {
     
     const totalGrp = filteredData.reduce((acc, curr) => acc + curr.grp, 0);
     const avgGrp = totalGrp / filteredData.length;
-    
     const totalOtsRaw = filteredData.reduce((acc, curr) => acc + curr.ots, 0); 
     const totalOtsMillions = totalOtsRaw / 1000;
-
     const uniqueSurfaces = new Set(filteredData.map(d => d.address)).size; 
     const totalSurfaces = filteredData.length;
-    
     const highGrpCount = filteredData.filter(d => d.grp > avgGrp).length;
     const percentHighGrp = (highGrpCount / filteredData.length) * 100;
-
-    // --- НОВАЯ ЛОГИКА: Считаем цифру (Digital + MF) ---
     const digitalCount = filteredData.filter(d => {
-      const fmt = d.format.toUpperCase(); // На всякий случай приводим к верхнему регистру
-      // Форматы на "D" (DBB, DCF...) или "MF" (Медиафасады)
+      const fmt = d.format.toUpperCase();
       return fmt.startsWith('D') || fmt === 'MF';
     }).length;
-
     const digitalShare = totalSurfaces > 0 ? (digitalCount / totalSurfaces) * 100 : 0;
 
     return { avgGrp, totalOtsMillions, uniqueSurfaces, totalSurfaces, percentHighGrp, digitalCount, digitalShare };
   }, [filteredData]);
 
   const handleFilterChange = (key: keyof FilterState, value: string) => {
-  setSelectedMapPointId(null); // Сбрасываем выбранную точку при смене фильтров
-  setFilters(prev => ({ ...prev, [key]: value }));
-};
+    setSelectedMapPointId(null);
+    setFilters(prev => ({ ...prev, [key]: value }));
+  };
+
+  // --- ЛОГИКА ЭКСПОРТА В EXCEL ---
+  const handleExcelExport = () => {
+    // Если выбраны основные фильтры (как для карты) -> выгружаем всё
+    if (isMapReady) {
+      exportToExcel(filteredData, 'OOH_Analytics', true);
+    } else {
+      // Иначе предупреждаем
+      const confirmed = window.confirm(
+        "Внимание: Вы не выбрали Город, Год и Месяц.\n\n" +
+        "Полная выгрузка может содержать миллионы строк и браузер может зависнуть.\n" +
+        "Нажмите «ОК», чтобы скачать только KPI (Сводку).\n" +
+        "Нажмите «Отмена», чтобы вернуться и выбрать фильтры."
+      );
+
+      if (confirmed) {
+        exportToExcel(filteredData, 'OOH_Analytics', false);
+      }
+    }
+  };
 
   if (error) return <div className="p-10 text-red-600 text-center font-bold">Ошибка: {error}</div>;
   if (isLoading) return (<div className="min-h-screen flex items-center justify-center bg-gray-100 flex-col gap-4"><Loader2 className="h-10 w-10 animate-spin text-teal-600" /><p className="text-gray-600 font-medium">Загрузка данных...</p></div>);
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-100">
-      {/* HEADER */}
       <div className="bg-white shadow-sm border-b border-gray-200 z-20 sticky top-0">
         <div className="px-6 py-4">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -230,7 +209,6 @@ const kpis = useMemo(() => {
         </div>
       </div>
 
-      {/* FILTERS */}
       <div className="bg-white border-b border-gray-200 px-6 py-4 shadow-sm z-10">
         <div className="flex flex-wrap gap-4 items-end p-1">
            <FilterDropdown label="Город" value={filters.city} options={options.cities} onChange={(v) => handleFilterChange('city', v)} />
@@ -238,34 +216,41 @@ const kpis = useMemo(() => {
            <FilterDropdown label="Месяц" value={filters.month} options={options.months} onChange={(v) => handleFilterChange('month', v)} />
            <FilterDropdown label="Формат" value={filters.format} options={options.formats} onChange={(v) => handleFilterChange('format', v)} />
            <FilterDropdown label="Продавец" value={filters.vendor} options={options.vendors} onChange={(v) => handleFilterChange('vendor', v)} />
-           <button onClick={() => setFilters({city: 'Все', year: 'Все', month: 'Все', format: 'Все', vendor: 'Все'})} className="ml-auto mb-1 px-4 py-2 text-sm font-medium text-teal-700 bg-teal-50 hover:bg-teal-100 rounded-md">Сбросить</button>
+           
+           {/* ГРУППА КНОПОК (EXCEL + СБРОС) */}
+           <div className="ml-auto mb-1 flex gap-2">
+             <button 
+               onClick={handleExcelExport}
+               disabled={filteredData.length === 0}
+               className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-green-700 bg-green-50 hover:bg-green-100 border border-green-200 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+               title="Скачать Excel (Сводка + Детали)"
+             >
+               <Download size={16} />
+               <span className="hidden sm:inline">Excel</span>
+             </button>
+
+             <button 
+               onClick={() => setFilters({city: 'Все', year: 'Все', month: 'Все', format: 'Все', vendor: 'Все'})} 
+               className="px-4 py-2 text-sm font-medium text-teal-700 bg-teal-50 hover:bg-teal-100 border border-teal-200 rounded-md transition-colors"
+             >
+               Сбросить
+             </button>
+           </div>
         </div>
       </div>
 
-      {/* CONTENT */}
       <main className="flex-grow p-6 overflow-y-auto w-full max-w-[1600px] mx-auto">
-        {/* Изменили grid-cols-4 на grid-cols-5 для больших экранов (xl) */}
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4 mb-6">
           <KPICard value={formatNumberRussian(kpis.avgGrp)} label="Средний GRP" />
-          
           <KPICard value={`${formatNumberRussian(kpis.totalOtsMillions, 1)} млн`} label="Общий OTS" subtext="контактов" />
-          
           <KPICard value={formatCompactRussian(kpis.totalSurfaces)} label="Всего поверхностей" subtext={`(Уникальных адресов: ${kpis.uniqueSurfaces.toLocaleString('ru-RU')})`} />
-          
-          {/* НОВАЯ 4-я карточка: Цифровой инвентарь */}
-          <KPICard 
-            value={`${formatCompactRussian(kpis.digitalCount)} (${Math.round(kpis.digitalShare)}%)`} 
-            label="Цифровых поверхностей (доля DOOH + MF)" 
-          />
-          
-          {/* 5-я карточка (сдвинулась) */}
+          <KPICard value={`${formatCompactRussian(kpis.digitalCount)} (${Math.round(kpis.digitalShare)}%)`} label="Цифровых поверхностей (доля DOOH + MF)" />
           <KPICard value={`${Math.round(kpis.percentHighGrp)}%`} label="% конструкций выше среднего GRP" />
         </div>
 
         {activeTab === TabView.ANALYTICS && (
           <div className="space-y-6 animate-in fade-in duration-500">
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[400px] lg:h-[350px]">
-              {/* Передаем функцию клика в графики */}
               <div className="lg:col-span-2 h-full"><TrendChart data={filteredData} onFilterClick={handleChartClick} /></div>
               <div className="h-full"><FormatBarChart data={filteredData} onFilterClick={handleChartClick} /></div>
             </div>
@@ -278,7 +263,6 @@ const kpis = useMemo(() => {
             {isMapReady ? (
               <>
                 <div className="relative">
-                  {/* Передаем обработчики и ID выбранной точки */}
                   <MapViz 
                     data={mapData} 
                     onPointClick={(id) => setSelectedMapPointId(id || null)}
@@ -295,7 +279,6 @@ const kpis = useMemo(() => {
                   <div className="px-4 py-3 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
                     <div className="flex items-center gap-4">
                       <h3 className="text-sm font-medium text-gray-700">Детализация</h3>
-                      {/* Кнопка сброса появляется только если выбрана точка */}
                       {selectedMapPointId && (
                         <button 
                           onClick={() => setSelectedMapPointId(null)}
@@ -323,7 +306,6 @@ const kpis = useMemo(() => {
                         </tr>
                       </thead>
                       <tbody className="bg-white divide-y divide-gray-200">
-                        {/* Используем tableData вместо filteredData */}
                         {tableData.map((record) => (
                           <tr key={record.id} className={`hover:bg-gray-50 transition-colors ${selectedMapPointId === record.id ? 'bg-blue-50' : ''}`}>
                             <td className="px-6 py-2 text-xs text-gray-900">{record.city}</td>
