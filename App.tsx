@@ -41,7 +41,6 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Загрузка данных
   useEffect(() => {
     const fetchData = async () => {
       setIsLoading(true);
@@ -59,19 +58,27 @@ const App: React.FC = () => {
     fetchData();
   }, []);
 
-  // Состояние фильтров
   const [filters, setFilters] = useState<FilterState>({
     city: 'Все', year: 'Все', month: 'Все', format: 'Все', vendor: 'Все',
   });
 
-  // --- ЛОГИКА ОГРАНИЧЕНИЯ КАРТЫ ---
-  // Карта доступна, только если выбраны: ГОРОД + ГОД + МЕСЯЦ
+  // Обработчик кликов по графикам
+  const handleChartClick = (type: 'date' | 'format' | 'vendor', value: any) => {
+    if (type === 'date') {
+      // При клике на график динамики устанавливаем и Год, и Месяц
+      setFilters(prev => ({ ...prev, year: value.year, month: value.month }));
+    } else if (type === 'format') {
+      setFilters(prev => ({ ...prev, format: value }));
+    } else if (type === 'vendor') {
+      setFilters(prev => ({ ...prev, vendor: value }));
+    }
+  };
+
   const isMapReady = filters.city !== 'Все' && filters.year !== 'Все' && filters.month !== 'Все';
 
   const options = useMemo(() => {
     if (data.length === 0) return { cities: [], years: [], months: [], formats: [], vendors: [] };
     const getUnique = (key: keyof OOHRecord) => Array.from(new Set(data.map(d => String(d[key])))).sort();
-    
     return {
       cities: getUnique('city'),
       years: getUnique('year'),
@@ -92,7 +99,6 @@ const App: React.FC = () => {
     });
   }, [data, filters]);
 
-  // Ограничиваем точки для карты (безопасный лимит браузера)
   const mapData = useMemo(() => {
      return filteredData.slice(0, 5000);
   }, [filteredData]);
@@ -102,13 +108,19 @@ const App: React.FC = () => {
     
     const totalGrp = filteredData.reduce((acc, curr) => acc + curr.grp, 0);
     const avgGrp = totalGrp / filteredData.length;
-    const totalOts = filteredData.reduce((acc, curr) => acc + curr.ots, 0); 
+    
+    // Сумма OTS из данных (в Excel они в тысячах)
+    const totalOtsRaw = filteredData.reduce((acc, curr) => acc + curr.ots, 0); 
+    
+    // Перевод в миллионы: (Сумма тысяч) / 1000 = Миллионы
+    const totalOtsMillions = totalOtsRaw / 1000;
+
     const uniqueSurfaces = new Set(filteredData.map(d => d.address)).size; 
     const totalSurfaces = filteredData.length;
     const highGrpCount = filteredData.filter(d => d.grp > avgGrp).length;
     const percentHighGrp = (highGrpCount / filteredData.length) * 100;
 
-    return { avgGrp, totalOts, uniqueSurfaces, totalSurfaces, percentHighGrp };
+    return { avgGrp, totalOtsMillions, uniqueSurfaces, totalSurfaces, percentHighGrp };
   }, [filteredData]);
 
   const handleFilterChange = (key: keyof FilterState, value: string) => {
@@ -116,15 +128,7 @@ const App: React.FC = () => {
   };
 
   if (error) return <div className="p-10 text-red-600 text-center font-bold">Ошибка: {error}</div>;
-
-  if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-100 flex-col gap-4">
-        <Loader2 className="h-10 w-10 animate-spin text-teal-600" />
-        <p className="text-gray-600 font-medium">Загрузка 2 млн записей...</p>
-      </div>
-    );
-  }
+  if (isLoading) return (<div className="min-h-screen flex items-center justify-center bg-gray-100 flex-col gap-4"><Loader2 className="h-10 w-10 animate-spin text-teal-600" /><p className="text-gray-600 font-medium">Загрузка данных...</p></div>);
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-100">
@@ -135,15 +139,7 @@ const App: React.FC = () => {
             <h1 className="text-2xl font-bold text-gray-900 tracking-tight">OOH Media Analytics</h1>
             <div className="flex gap-4">
                 <button onClick={() => setActiveTab(TabView.ANALYTICS)} className={`px-6 py-3 rounded-lg text-lg font-bold transition-all border-2 ${activeTab === TabView.ANALYTICS ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-gray-500 border-gray-200'}`}>Analytics</button>
-                
-                {/* Кнопка карты с индикатором блокировки */}
-                <button 
-                  onClick={() => setActiveTab(TabView.MAP)} 
-                  className={`px-6 py-3 rounded-lg text-lg font-bold transition-all border-2 flex items-center gap-2 ${activeTab === TabView.MAP ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-gray-500 border-gray-200'}`}
-                >
-                  Map
-                  {!isMapReady && <Lock size={16} className="text-gray-400" />}
-                </button>
+                <button onClick={() => setActiveTab(TabView.MAP)} className={`px-6 py-3 rounded-lg text-lg font-bold transition-all border-2 flex items-center gap-2 ${activeTab === TabView.MAP ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-gray-500 border-gray-200'}`}>Map {!isMapReady && <Lock size={16} className="text-gray-400" />}</button>
             </div>
           </div>
         </div>
@@ -165,7 +161,10 @@ const App: React.FC = () => {
       <main className="flex-grow p-6 overflow-y-auto w-full max-w-[1600px] mx-auto">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
           <KPICard value={formatNumberRussian(kpis.avgGrp)} label="Средний GRP" />
-          <KPICard value={`${formatCompactRussian(kpis.totalOts * 1000)}`} label="Общий OTS" subtext="человек" />
+          
+          {/* ИСПРАВЛЕНО: Показываем в миллионах */}
+          <KPICard value={`${formatNumberRussian(kpis.totalOtsMillions, 1)} млн`} label="Общий OTS" subtext="контактов" />
+          
           <KPICard value={formatCompactRussian(kpis.totalSurfaces)} label="Всего поверхностей" subtext={`(Уникальных адресов: ${kpis.uniqueSurfaces.toLocaleString('ru-RU')})`} />
           <KPICard value={`${Math.round(kpis.percentHighGrp)}%`} label="% конструкций выше среднего GRP" />
         </div>
@@ -173,46 +172,27 @@ const App: React.FC = () => {
         {activeTab === TabView.ANALYTICS && (
           <div className="space-y-6 animate-in fade-in duration-500">
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[400px] lg:h-[350px]">
-              <div className="lg:col-span-2 h-full"><TrendChart data={filteredData} /></div>
-              <div className="h-full"><FormatBarChart data={filteredData} /></div>
+              {/* Передаем функцию клика в графики */}
+              <div className="lg:col-span-2 h-full"><TrendChart data={filteredData} onFilterClick={handleChartClick} /></div>
+              <div className="h-full"><FormatBarChart data={filteredData} onFilterClick={handleChartClick} /></div>
             </div>
-            <div className="w-full"><VendorTreemap data={filteredData} /></div>
+            <div className="w-full"><VendorTreemap data={filteredData} onFilterClick={handleChartClick} /></div>
           </div>
         )}
 
         {activeTab === TabView.MAP && (
           <div className="space-y-6 animate-in fade-in duration-500">
-            
-            {/* УСЛОВНАЯ ОТРИСОВКА: Карта или Предупреждение */}
             {isMapReady ? (
               <>
-                <div className="relative">
-                   <MapViz data={mapData} />
-                   {filteredData.length > 5000 && (
-                     <div className="absolute top-2 right-2 bg-yellow-100 text-yellow-800 text-xs px-3 py-1 rounded-full shadow-md z-[1000] border border-yellow-300">
-                       Показано 5000 из {filteredData.length} точек (ограничение браузера)
-                     </div>
-                   )}
-                </div>
-
+                <div className="relative"><MapViz data={mapData} />{filteredData.length > 5000 && (<div className="absolute top-2 right-2 bg-yellow-100 text-yellow-800 text-xs px-3 py-1 rounded-full shadow-md z-[1000] border border-yellow-300">Показано 5000 из {filteredData.length} точек</div>)}</div>
                 <div className="bg-white shadow-sm rounded-lg border border-gray-200 overflow-hidden">
-                  <div className="px-4 py-3 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
-                      <h3 className="text-sm font-medium text-gray-700">Детализация по адресам</h3>
-                      <span className="text-xs text-gray-500">Всего найдено: {filteredData.length}</span>
-                  </div>
+                  <div className="px-4 py-3 border-b border-gray-200 bg-gray-50 flex justify-between items-center"><h3 className="text-sm font-medium text-gray-700">Детализация</h3><span className="text-xs text-gray-500">Всего: {filteredData.length}</span></div>
                   <div className="overflow-x-auto">
                     <table className="min-w-full divide-y divide-gray-200">
                       <thead className="bg-gray-50"><tr><th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Город</th><th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Адрес</th><th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Продавец</th><th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Формат</th><th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">GRP</th><th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">OTS</th></tr></thead>
                       <tbody className="bg-white divide-y divide-gray-200">
                         {filteredData.slice(0, 20).map((record) => (
-                          <tr key={record.id} className="hover:bg-gray-50">
-                            <td className="px-6 py-2 text-xs text-gray-900">{record.city}</td>
-                            <td className="px-6 py-2 text-xs text-gray-500 truncate max-w-xs" title={record.address}>{record.address}</td>
-                            <td className="px-6 py-2 text-xs text-gray-500">{record.vendor}</td>
-                            <td className="px-6 py-2 text-xs text-gray-500">{record.format}</td>
-                            <td className="px-6 py-2 text-xs text-gray-900 text-right">{formatNumberRussian(record.grp)}</td>
-                            <td className="px-6 py-2 text-xs text-gray-900 text-right">{formatNumberRussian(record.ots)}</td>
-                          </tr>
+                          <tr key={record.id} className="hover:bg-gray-50"><td className="px-6 py-2 text-xs text-gray-900">{record.city}</td><td className="px-6 py-2 text-xs text-gray-500 truncate max-w-xs" title={record.address}>{record.address}</td><td className="px-6 py-2 text-xs text-gray-500">{record.vendor}</td><td className="px-6 py-2 text-xs text-gray-500">{record.format}</td><td className="px-6 py-2 text-xs text-gray-900 text-right">{formatNumberRussian(record.grp)}</td><td className="px-6 py-2 text-xs text-gray-900 text-right">{formatNumberRussian(record.ots)}</td></tr>
                         ))}
                       </tbody>
                     </table>
@@ -220,24 +200,13 @@ const App: React.FC = () => {
                 </div>
               </>
             ) : (
-              /* ЗАГЛУШКА: Если фильтры НЕ выбраны */
               <div className="bg-yellow-50 border-l-4 border-yellow-400 p-8 rounded-md flex flex-col items-center justify-center h-[400px] shadow-sm">
-                 <div className="bg-yellow-100 p-4 rounded-full mb-4">
-                    <MapIcon className="h-10 w-10 text-yellow-600" />
-                 </div>
+                 <div className="bg-yellow-100 p-4 rounded-full mb-4"><MapIcon className="h-10 w-10 text-yellow-600" /></div>
                  <h3 className="text-xl font-bold text-yellow-800 mb-2">Для карты нужен точный выбор</h3>
-                 <p className="text-yellow-700 text-center max-w-md mb-6">
-                   Карта не может отобразить все 2 миллиона точек сразу.
-                 </p>
-                 <div className="flex items-center gap-2 bg-white px-6 py-3 rounded-lg shadow-sm border border-yellow-200">
-                    <AlertTriangle className="h-5 w-5 text-orange-500" />
-                    <span className="font-medium text-gray-700">
-                      Пожалуйста, выберите <strong>Город</strong>, <strong>Год</strong> и <strong>Месяц</strong> в фильтрах выше.
-                    </span>
-                 </div>
+                 <p className="text-yellow-700 text-center max-w-md mb-6">Карта не может отобразить все 2 миллиона точек сразу.</p>
+                 <div className="flex items-center gap-2 bg-white px-6 py-3 rounded-lg shadow-sm border border-yellow-200"><AlertTriangle className="h-5 w-5 text-orange-500" /><span className="font-medium text-gray-700">Пожалуйста, выберите <strong>Город</strong>, <strong>Год</strong> и <strong>Месяц</strong> в фильтрах выше.</span></div>
               </div>
             )}
-
           </div>
         )}
       </main>
