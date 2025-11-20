@@ -1,87 +1,118 @@
-import React, { useMemo } from 'react';
+import React, { useEffect } from 'react';
+import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from 'react-leaflet';
+import 'leaflet/dist/leaflet.css';
 import { OOHRecord } from '../types';
+import { formatNumberRussian } from '../utils/data';
 
 interface MapVizProps {
   data: OOHRecord[];
 }
 
-// A simplified SVG map component that scales points to a bounding box
-export const MapViz: React.FC<MapVizProps> = ({ data }) => {
-  
-  const { points, bounds } = useMemo(() => {
-    if (data.length === 0) return { points: [], bounds: null };
+// --- Компонент для авто-фокуса карты ---
+// Он смотрит на данные и передвигает камеру так, чтобы все точки влезли в экран
+const MapUpdater: React.FC<{ data: OOHRecord[] }> = ({ data }) => {
+  const map = useMap();
 
-    const lats = data.map(d => d.lat);
-    const lngs = data.map(d => d.lng);
-    
+  useEffect(() => {
+    if (data.length === 0) return;
+
+    const lats = data.map(d => d.lat).filter(l => l !== 0);
+    const lngs = data.map(d => d.lng).filter(l => l !== 0);
+
+    if (lats.length === 0 || lngs.length === 0) return;
+
     const minLat = Math.min(...lats);
     const maxLat = Math.max(...lats);
     const minLng = Math.min(...lngs);
     const maxLng = Math.max(...lngs);
 
-    // Add 10% padding
-    const latPad = (maxLat - minLat) * 0.1 || 0.01;
-    const lngPad = (maxLng - minLng) * 0.1 || 0.01;
+    // Если точка всего одна (или все координаты одинаковые)
+    if (minLat === maxLat && minLng === maxLng) {
+      map.setView([minLat, minLng], 14); // Приближаем близко к этой точке
+    } else {
+      // Иначе берем границы всех точек и добавляем отступы (padding)
+      map.fitBounds(
+        [[minLat, minLng], [maxLat, maxLng]], 
+        { padding: [50, 50] }
+      );
+    }
+  }, [data, map]);
 
-    return {
-      points: data,
-      bounds: {
-        minLat: minLat - latPad,
-        maxLat: maxLat + latPad,
-        minLng: minLng - lngPad,
-        maxLng: maxLng + lngPad,
-      }
-    };
-  }, [data]);
+  return null;
+};
 
-  if (!bounds) {
-    return <div className="flex items-center justify-center h-full text-gray-400">Нет данных для отображения карты</div>;
-  }
-
-  const width = 800;
-  const height = 400;
-
-  const getX = (lng: number) => {
-    return ((lng - bounds.minLng) / (bounds.maxLng - bounds.minLng)) * width;
-  };
-
-  // Latitude is inverted in SVG (y=0 is top)
-  const getY = (lat: number) => {
-    return height - ((lat - bounds.minLat) / (bounds.maxLat - bounds.minLat)) * height;
-  };
+// --- Основной компонент карты ---
+export const MapViz: React.FC<MapVizProps> = ({ data }) => {
+  // Центр по умолчанию (Москва), если данных нет
+  const defaultCenter: [number, number] = [55.75, 37.61];
 
   return (
-    <div className="relative w-full h-96 bg-gray-100 rounded-lg overflow-hidden border border-gray-300">
-      {/* Placeholder for Map Tiles Background */}
-      <div className="absolute inset-0 opacity-20 bg-[url('https://upload.wikimedia.org/wikipedia/commons/thumb/8/8b/Russia_edcp_location_map.svg/2560px-Russia_edcp_location_map.svg.png')] bg-cover bg-center" />
-      
-      <div className="absolute top-4 left-4 bg-white px-3 py-1 rounded shadow text-xs font-semibold text-gray-700">
-        Карта поверхностей
-      </div>
+    // z-0 важен, чтобы карта не перекрывала выпадающие списки фильтров
+    <div className="h-[500px] w-full rounded-lg overflow-hidden shadow-md border border-gray-200 relative z-0">
+      <MapContainer 
+        center={defaultCenter} 
+        zoom={5} 
+        scrollWheelZoom={true} 
+        style={{ height: '100%', width: '100%' }}
+      >
+        {/* СЛОЙ КАРТЫ (Тайлы OpenStreetMap) - Это и есть "картинка" местности */}
+        <TileLayer
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        />
 
-      <div className="absolute top-4 right-4 bg-white px-2 py-1 rounded shadow text-xs text-gray-600 flex flex-col gap-1">
-         <button className="hover:bg-gray-100 w-6 h-6 flex items-center justify-center rounded font-bold">+</button>
-         <button className="hover:bg-gray-100 w-6 h-6 flex items-center justify-center rounded font-bold">-</button>
-      </div>
+        {/* Рисуем точки */}
+        {data.map((record) => {
+           // Пропускаем мусорные координаты
+           if (!record.lat || !record.lng) return null;
 
-      <svg viewBox={`0 0 ${width} ${height}`} className="absolute inset-0 w-full h-full pointer-events-none">
-        {points.map((p) => (
-          <circle
-            key={p.id}
-            cx={getX(p.lng)}
-            cy={getY(p.lat)}
-            r={3}
-            fill="#0ea5e9"
-            stroke="#0284c7"
-            strokeWidth={0.5}
-            opacity={0.7}
-          />
-        ))}
-      </svg>
-      
-      <div className="absolute bottom-2 right-2 text-[10px] text-gray-500">
-        © 2025 OSM © 2025 TomTom Feedback
-      </div>
+           // Цвет точки: Красный, если GRP высокий (>3), иначе синий
+           const isHighGrp = record.grp > 3;
+           const color = isHighGrp ? '#ef4444' : '#0ea5e9';
+
+           return (
+            <CircleMarker 
+              key={record.id}
+              center={[record.lat, record.lng]}
+              pathOptions={{ 
+                color: color,       // Цвет обводки
+                fillColor: color,   // Цвет заливки
+                fillOpacity: 0.7, 
+                weight: 1 
+              }}
+              radius={5} // Размер кружочка
+            >
+              <Popup>
+                <div className="p-1 min-w-[200px]">
+                  <strong className="block text-sm text-gray-900 mb-1">{record.address}</strong>
+                  <div className="text-xs text-gray-500 mb-2 border-b pb-2">
+                    {record.city} | {record.vendor}
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-sm">
+                    <div>
+                      <div className="text-[10px] text-gray-400 uppercase">Формат</div>
+                      <div className="font-medium">{record.format}</div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] text-gray-400 uppercase">GRP</div>
+                      <div className={`font-bold ${isHighGrp ? 'text-red-600' : 'text-gray-800'}`}>
+                        {formatNumberRussian(record.grp)}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] text-gray-400 uppercase">OTS</div>
+                      <div>{formatNumberRussian(record.ots)}</div>
+                    </div>
+                  </div>
+                </div>
+              </Popup>
+            </CircleMarker>
+           );
+        })}
+
+        {/* Активируем авто-фокус */}
+        <MapUpdater data={data} />
+      </MapContainer>
     </div>
   );
 };
