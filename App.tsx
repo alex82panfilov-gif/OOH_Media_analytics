@@ -76,18 +76,78 @@ const App: React.FC = () => {
 
   const isMapReady = filters.city !== 'Все' && filters.year !== 'Все' && filters.month !== 'Все';
 
+// --- ОБНОВЛЕННАЯ ЛОГИКА ФИЛЬТРАЦИИ ---
   const options = useMemo(() => {
-    if (data.length === 0) return { cities: [], years: [], months: [], formats: [], vendors: [] };
-    const getUnique = (key: keyof OOHRecord) => Array.from(new Set(data.map(d => String(d[key])))).sort();
-    return {
-      cities: getUnique('city'),
-      years: getUnique('year'),
-      months: Array.from(new Set(data.map(d => d.month))),
-      formats: getUnique('format'),
-      vendors: getUnique('vendor'),
-    };
-  }, [data]);
+    if (data.length === 0) {
+      return { cities: [], years: [], months: [], formats: [], vendors: [] };
+    }
 
+    // Создаем Sets для сбора уникальных значений
+    const cities = new Set<string>();
+    const years = new Set<string>();
+    const months = new Set<string>();
+    const formats = new Set<string>();
+    const vendors = new Set<string>();
+
+    // Проходим по всем данным ОДИН раз
+    data.forEach(d => {
+      const strYear = String(d.year);
+
+      // Проверяем совпадение строки с текущими фильтрами
+      // Если фильтр "Все" или значение совпадает — считаем, что условие выполнено
+      const matchCity = filters.city === 'Все' || d.city === filters.city;
+      const matchYear = filters.year === 'Все' || strYear === filters.year;
+      const matchMonth = filters.month === 'Все' || d.month === filters.month;
+      const matchFormat = filters.format === 'Все' || d.format === filters.format;
+      const matchVendor = filters.vendor === 'Все' || d.vendor === filters.vendor;
+
+      // ЛОГИКА:
+      // Чтобы добавить Город в список доступных, запись должна подходить по ВСЕМ остальным критериям (Год, Месяц, Формат, Продавец),
+      // но нам не важно, совпадает ли сам Город (чтобы список не схлопывался до одного выбранного значения).
+      
+      // 1. Собираем Города (учитываем все фильтры, кроме City)
+      if (matchYear && matchMonth && matchFormat && matchVendor) {
+        cities.add(d.city);
+      }
+
+      // 2. Собираем Года (учитываем все, кроме Year)
+      if (matchCity && matchMonth && matchFormat && matchVendor) {
+        years.add(strYear);
+      }
+
+      // 3. Собираем Месяцы (учитываем все, кроме Month)
+      if (matchCity && matchYear && matchFormat && matchVendor) {
+        months.add(d.month);
+      }
+
+      // 4. Собираем Форматы (учитываем все, кроме Format)
+      if (matchCity && matchYear && matchMonth && matchVendor) {
+        formats.add(d.format);
+      }
+
+      // 5. Собираем Продавцов (учитываем все, кроме Vendor)
+      if (matchCity && matchYear && matchMonth && matchFormat) {
+        vendors.add(d.vendor);
+      }
+    });
+
+    // Функция сортировки месяцев (опционально, чтобы не было хаоса)
+    // Можно использовать упрощенный порядок из Charts, но здесь сделаем простой
+    const monthOrder = ['январь', 'февраль', 'март', 'апрель', 'май', 'июнь', 'июль', 'август', 'сентябрь', 'октябрь', 'ноябрь', 'декабрь'];
+    const sortMonths = (a: string, b: string) => {
+       const ia = monthOrder.findIndex(m => a.toLowerCase().includes(m));
+       const ib = monthOrder.findIndex(m => b.toLowerCase().includes(m));
+       return ia - ib;
+    };
+
+    return {
+      cities: Array.from(cities).sort(),
+      years: Array.from(years).sort(),
+      months: Array.from(months).sort(sortMonths), // Применяем сортировку месяцев
+      formats: Array.from(formats).sort(),
+      vendors: Array.from(vendors).sort(),
+    };
+  }, [data, filters]); // Важно: пересчитываем при изменении data И filters
   const filteredData = useMemo(() => {
     return data.filter(d => {
       if (filters.city !== 'Все' && d.city !== filters.city) return false;
