@@ -38,39 +38,29 @@ const getMonthInfo = (monthStr: string) => {
   };
 };
 
-// --- 1. ГРАФИК ДИНАМИКИ (ИСПРАВЛЕННЫЙ) ---
+// --- 1. ГРАФИК ДИНАМИКИ (С КЛИКАБЕЛЬНОСТЬЮ) ---
 export const TrendChart: React.FC<ChartProps> = ({ data, onFilterClick }) => {
   const chartData = useMemo(() => {
     const grouped: Record<string, { totalGrp: number; count: number; year: number; monthIdx: number; fullMonth: string }> = {};
     
     data.forEach(d => {
-      // 1. Игнорируем столбец U. Собираем ключ сами из Года и Месяца.
       const { index: monthIdx, shortName } = getMonthInfo(d.month);
-      
-      // Уникальный ключ для группировки: "2024-0" (январь 2024)
       const sortKey = `${d.year}-${monthIdx}`;
       
       if (!grouped[sortKey]) {
         grouped[sortKey] = { 
-          totalGrp: 0, 
-          count: 0, 
-          year: d.year, 
-          monthIdx: monthIdx,
-          fullMonth: d.month 
+          totalGrp: 0, count: 0, year: d.year, monthIdx: monthIdx, fullMonth: d.month 
         };
       }
       grouped[sortKey].totalGrp += d.grp;
       grouped[sortKey].count += 1;
     });
 
-    // 2. Превращаем в массив и сортируем
     return Object.values(grouped).map(item => ({
-      // Формируем красивую подпись: "янв 2024"
       name: `${getMonthInfo(item.fullMonth).shortName} ${item.year}`,
       value: item.totalGrp / item.count,
-      year: item.year,
-      month: item.fullMonth,
-      // Для сортировки используем числовое значение: год * 100 + месяц
+      year: item.year, // Важно для фильтра
+      month: item.fullMonth, // Важно для фильтра
       sortValue: item.year * 100 + item.monthIdx
     })).sort((a, b) => a.sortValue - b.sortValue);
 
@@ -83,49 +73,40 @@ export const TrendChart: React.FC<ChartProps> = ({ data, onFilterClick }) => {
         <ResponsiveContainer width="100%" height="100%">
           <LineChart 
             data={chartData} 
+            margin={{ top: 20, right: 10, left: 10, bottom: 0 }}
+            className="cursor-pointer" // Курсор-палец, чтобы было понятно, что можно кликать
             onClick={(e) => {
-              if (e && e.activePayload && e.activePayload[0]) {
+              // Проверяем, есть ли активная точка (activePayload)
+              if (e && e.activePayload && e.activePayload.length > 0) {
                 const payload = e.activePayload[0].payload;
-                if (onFilterClick) onFilterClick('date', { year: String(payload.year), month: payload.month });
+                if (onFilterClick) {
+                  // Передаем объект с годом и месяцем
+                  onFilterClick('date', { 
+                    year: String(payload.year), 
+                    month: payload.month 
+                  });
+                }
               }
             }}
-            className="cursor-pointer"
-            // Добавляем отступы слева и справа, чтобы точки не обрезались
-            margin={{ top: 20, right: 10, left: 10, bottom: 0 }}
           >
             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
-            
             <XAxis 
-              dataKey="name" 
-              tick={{ fontSize: 11, fill: '#6b7280' }} 
-              axisLine={false} 
-              tickLine={false}
-              angle={-30}
-              textAnchor="end"
-              height={50}
-              // ВАЖНО: Отступ слева и справа внутри оси
-              padding={{ left: 30, right: 30 }}
+              dataKey="name" tick={{ fontSize: 11, fill: '#6b7280' }} 
+              axisLine={false} tickLine={false} angle={-30} textAnchor="end" 
+              height={50} padding={{ left: 30, right: 30 }}
             />
-            
             <Tooltip 
               formatter={(val: number) => [formatNumberRussian(val), 'Средний GRP']}
               labelStyle={{ color: '#111827', fontWeight: 'bold' }}
               contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
             />
-            
             <Line 
-              type="monotone" 
-              dataKey="value" 
-              stroke="#334155" 
-              strokeWidth={3} 
+              type="monotone" dataKey="value" stroke="#334155" strokeWidth={3} 
               dot={{ r: 5, fill: '#fff', strokeWidth: 2 }} 
               activeDot={{ r: 7, fill: '#334155' }}
             >
-               {/* dy={-15} поднимает текст выше точки */}
                <LabelList 
-                 dataKey="value" 
-                 position="top" 
-                 dy={-15} 
+                 dataKey="value" position="top" dy={-15} 
                  formatter={(val: number) => formatNumberRussian(val)} 
                  style={{ fontSize: '11px', fill: '#334155', fontWeight: 600 }} 
                />
@@ -137,14 +118,16 @@ export const TrendChart: React.FC<ChartProps> = ({ data, onFilterClick }) => {
   );
 };
 
-// --- 2. ГРАФИК ФОРМАТОВ (Без изменений) ---
+// --- 2. ГРАФИК ФОРМАТОВ (С КЛИКАБЕЛЬНОСТЬЮ) ---
 export const FormatBarChart: React.FC<ChartProps> = ({ data, onFilterClick }) => {
   const chartData = useMemo(() => {
     const grouped: Record<string, { totalGrp: number; count: number }> = {};
     data.forEach(d => {
-      if (!grouped[d.format]) grouped[d.format] = { totalGrp: 0, count: 0 };
-      grouped[d.format].totalGrp += d.grp;
-      grouped[d.format].count += 1;
+      // Используем trim, чтобы избежать проблем с пробелами
+      const fmt = (d.format || '').trim(); 
+      if (!grouped[fmt]) grouped[fmt] = { totalGrp: 0, count: 0 };
+      grouped[fmt].totalGrp += d.grp;
+      grouped[fmt].count += 1;
     });
 
     return Object.keys(grouped)
@@ -162,27 +145,31 @@ export const FormatBarChart: React.FC<ChartProps> = ({ data, onFilterClick }) =>
             layout="vertical" 
             data={chartData} 
             margin={{ left: 20, right: 30 }}
+            className="cursor-pointer" // Добавляем курсор
             onClick={(e) => {
-              if (e && e.activePayload && e.activePayload[0]) {
-                 if (onFilterClick) onFilterClick('format', e.activePayload[0].payload.name);
+              if (e && e.activePayload && e.activePayload.length > 0) {
+                // Получаем название формата (name) из кликнутого бара
+                const formatName = e.activePayload[0].payload.name;
+                if (onFilterClick) {
+                    onFilterClick('format', formatName);
+                }
               }
             }}
-            className="cursor-pointer"
           >
             <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="#f0f0f0" />
             <XAxis type="number" hide />
             <YAxis 
-              dataKey="name" 
-              type="category" 
-              width={120} 
+              dataKey="name" type="category" width={120} 
               tick={{ fontSize: 11, fill: '#4b5563' }} 
-              axisLine={false} 
-              tickLine={false} 
-              interval={0}
+              axisLine={false} tickLine={false} interval={0}
             />
             <Tooltip formatter={(val: number) => formatNumberRussian(val)} cursor={{fill: '#f3f4f6'}} />
             <Bar dataKey="value" fill="#334155" radius={[0, 4, 4, 0]} barSize={24}>
-              <LabelList dataKey="value" position="right" formatter={(val: number) => formatNumberRussian(val)} style={{ fontSize: '11px', fill: '#6b7280' }} />
+              <LabelList 
+                dataKey="value" position="right" 
+                formatter={(val: number) => formatNumberRussian(val)} 
+                style={{ fontSize: '11px', fill: '#6b7280' }} 
+              />
             </Bar>
           </BarChart>
         </ResponsiveContainer>
