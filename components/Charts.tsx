@@ -1,34 +1,30 @@
 import React, { useMemo } from 'react';
 import { 
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
-  BarChart, Bar, Cell, Treemap, LabelList 
+  BarChart, Bar, Treemap, LabelList 
 } from 'recharts';
 import { OOHRecord } from '../types';
 import { formatNumberRussian } from '../utils/data';
 
 interface ChartProps {
   data: OOHRecord[];
-  // Добавляем функцию для кликов по графику
   onFilterClick?: (type: 'date' | 'format' | 'vendor', value: any) => void;
 }
 
-// --- 1. ГРАФИК ДИНАМИКИ (TREMD) ---
+// --- 1. ГРАФИК ДИНАМИКИ ---
 export const TrendChart: React.FC<ChartProps> = ({ data, onFilterClick }) => {
   const chartData = useMemo(() => {
-    // Группируем по dateLabel ("окт 2025")
-    const grouped: Record<string, { totalGrp: number; count: number; sortKey: number; year: number; month: string }> = {};
+    const grouped: Record<string, { totalGrp: number; count: number; year: number; month: string }> = {};
     
     data.forEach(d => {
-      if (!grouped[d.dateLabel]) {
-        // Создаем ключ для сортировки: 2025 * 100 + месяц (нужна логика парсинга, но
-        // проще взять d.year и d.month для передачи в клик)
-        grouped[d.dateLabel] = { totalGrp: 0, count: 0, sortKey: d.year * 100, year: d.year, month: d.month };
-      }
-      grouped[d.dateLabel].totalGrp += d.grp;
-      grouped[d.dateLabel].count += 1;
+      // Если dateLabel пустой (старый файл), называем точку "Без даты" или берем из года/месяца
+      const label = d.dateLabel || `${d.month} ${d.year}`;
       
-      // Хак для сортировки: если месяц текстом, сложно сортировать. 
-      // В идеале dateLabel должен быть сортируемым, но положимся на порядок в Excel или добавим логику
+      if (!grouped[label]) {
+        grouped[label] = { totalGrp: 0, count: 0, year: d.year, month: d.month };
+      }
+      grouped[label].totalGrp += d.grp;
+      grouped[label].count += 1;
     });
 
     return Object.keys(grouped).map(key => ({
@@ -37,12 +33,8 @@ export const TrendChart: React.FC<ChartProps> = ({ data, onFilterClick }) => {
       year: grouped[key].year,
       month: grouped[key].month
     })).sort((a, b) => {
-       // Простая сортировка может быть не идеальной для текста, 
-       // но если Excel дает их по порядку, график построится.
-       // Для надежности лучше использовать d.year/d.month для сортировки.
        const monthsOrder = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
        const getMIdx = (m: string) => monthsOrder.findIndex(mo => m.toLowerCase().includes(mo));
-       
        if (a.year !== b.year) return a.year - b.year;
        return getMIdx(a.month) - getMIdx(b.month);
     });
@@ -73,7 +65,6 @@ export const TrendChart: React.FC<ChartProps> = ({ data, onFilterClick }) => {
               textAnchor="end"
               height={50}
             />
-            {/* УБРАЛИ YAxis, как вы просили */}
             <Tooltip 
               formatter={(val: number) => [formatNumberRussian(val), 'Средний GRP']}
               labelStyle={{ color: '#111827', fontWeight: 'bold' }}
@@ -120,7 +111,7 @@ export const FormatBarChart: React.FC<ChartProps> = ({ data, onFilterClick }) =>
           <BarChart 
             layout="vertical" 
             data={chartData} 
-            margin={{ left: 20, right: 30 }} // Отступы
+            margin={{ left: 20, right: 30 }}
             onClick={(e) => {
               if (e && e.activePayload && e.activePayload[0]) {
                  if (onFilterClick) onFilterClick('format', e.activePayload[0].payload.name);
@@ -130,7 +121,6 @@ export const FormatBarChart: React.FC<ChartProps> = ({ data, onFilterClick }) =>
           >
             <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="#f0f0f0" />
             <XAxis type="number" hide />
-            {/* УВЕЛИЧИЛИ width до 120, чтобы названия влезали */}
             <YAxis 
               dataKey="name" 
               type="category" 
@@ -138,7 +128,7 @@ export const FormatBarChart: React.FC<ChartProps> = ({ data, onFilterClick }) =>
               tick={{ fontSize: 11, fill: '#4b5563' }} 
               axisLine={false} 
               tickLine={false} 
-              interval={0} // Показать ВСЕ подписи
+              interval={0}
             />
             <Tooltip formatter={(val: number) => formatNumberRussian(val)} cursor={{fill: '#f3f4f6'}} />
             <Bar dataKey="value" fill="#334155" radius={[0, 4, 4, 0]} barSize={24}>
@@ -151,7 +141,7 @@ export const FormatBarChart: React.FC<ChartProps> = ({ data, onFilterClick }) =>
   );
 };
 
-// --- 3. TREEMAP ПРОДАВЦОВ (ТЕПЕРЬ ПО КОЛИЧЕСТВУ) ---
+// --- 3. TREEMAP ПРОДАВЦОВ ---
 const COLORS = ['#0ea5e9', '#22c55e', '#eab308', '#f97316', '#ef4444', '#a855f7', '#ec4899', '#6366f1'];
 
 export const VendorTreemap: React.FC<ChartProps> = ({ data, onFilterClick }) => {
@@ -159,29 +149,33 @@ export const VendorTreemap: React.FC<ChartProps> = ({ data, onFilterClick }) => 
     const grouped: Record<string, number> = {};
     data.forEach(d => {
       if (!grouped[d.vendor]) grouped[d.vendor] = 0;
-      // ТЕПЕРЬ СЧИТАЕМ КОЛИЧЕСТВО ПОВЕРХНОСТЕЙ (Count), А НЕ OTS
       grouped[d.vendor] += 1; 
     });
 
     return Object.keys(grouped)
       .map((key, index) => ({ 
         name: key, 
-        size: grouped[key], // Размер квадрата = кол-во поверхностей
+        size: grouped[key], 
         fill: COLORS[index % COLORS.length] 
       }))
       .sort((a, b) => b.size - a.size);
   }, [data]);
 
   const CustomContent = (props: any) => {
-    const { x, y, width, height, name, size } = props;
-    if (width < 40 || height < 40) return null; // Скрываем мелкие подписи
+    // --- ИСПРАВЛЕНИЕ ЗДЕСЬ ---
+    // Иногда Recharts передает данные в 'value', а не в 'size'.
+    // Мы берем то, что есть, и добавляем || 0, чтобы toLocaleString не упал.
+    const { x, y, width, height, name, size, value } = props;
+    const displayValue = size || value || 0;
+    
+    if (width < 40 || height < 40) return null;
     
     return (
       <g>
         <rect x={x} y={y} width={width} height={height} fill={props.fill} stroke="#fff" strokeWidth={2} />
         <text x={x + 6} y={y + 18} fill="#fff" fontSize={12} fontWeight="bold">{name}</text>
         <text x={x + 6} y={y + 34} fill="rgba(255,255,255,0.9)" fontSize={10}>
-          {size.toLocaleString('ru-RU')} шт.
+          {displayValue.toLocaleString('ru-RU')} шт.
         </text>
       </g>
     );
