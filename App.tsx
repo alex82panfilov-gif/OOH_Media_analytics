@@ -240,11 +240,10 @@ const kpis = useMemo(() => {
           
           {/* НОВАЯ 4-я карточка: Цифровой инвентарь */}
           <KPICard 
-            value={formatCompactRussian(kpis.digitalCount)} 
-            label="Цифровых поверхностей" 
-            subtext={`Доля: ${Math.round(kpis.digitalShare)}% (DOOH + MF)`} 
+            value={`${formatCompactRussian(kpis.digitalCount)} (${Math.round(kpis.digitalShare)}%)`} 
+            label="Цифровых поверхностей (доля DOOH + MF)" 
           />
-
+          
           {/* 5-я карточка (сдвинулась) */}
           <KPICard value={`${Math.round(kpis.percentHighGrp)}%`} label="% конструкций выше среднего GRP" />
         </div>
