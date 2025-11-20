@@ -1,13 +1,14 @@
 import { OOHRecord } from '../types';
 import { parquetRead } from 'hyparquet';
 
+// ОБНОВЛЕННЫЙ СПИСОК: Добавил октябрь, ноябрь и декабрь 2025
 const FILE_LIST = [
   '2024-01.parquet', '2024-02.parquet', '2024-03.parquet', '2024-04.parquet',
   '2024-05.parquet', '2024-06.parquet', '2024-07.parquet', '2024-08.parquet',
   '2024-09.parquet', '2024-10.parquet', '2024-11.parquet', '2024-12.parquet',
   '2025-01.parquet', '2025-02.parquet', '2025-03.parquet', '2025-04.parquet',
   '2025-05.parquet', '2025-06.parquet', '2025-07.parquet', '2025-08.parquet',
-  '2025-09.parquet'
+  '2025-09.parquet', '2025-10.parquet', '2025-11.parquet', '2025-12.parquet'
 ];
 
 export const loadRealData = async (): Promise<OOHRecord[]> => {
@@ -18,11 +19,10 @@ export const loadRealData = async (): Promise<OOHRecord[]> => {
 
   const promises = FILE_LIST.map(async (filename) => {
     try {
-      // Убрали проверку content-type, чтобы Vercel не блокировал файлы
       const response = await fetch(`/data/${filename}`);
       
       if (!response.ok) {
-        console.warn(`⚠️ Файл не найден (404): ${filename}`);
+        // Тихая проверка: если файла нет, просто пропускаем
         return [];
       }
 
@@ -37,14 +37,8 @@ export const loadRealData = async (): Promise<OOHRecord[]> => {
               return;
             }
 
-            // Вывод первой строки для проверки (в консоли будет видно реальные данные)
-            if (allRecords.length === 0) {
-               console.log(`✅ Читаем ${filename}. Пример строки:`, rawData[0]);
-            }
-
             const mapped = rawData.map((row, index) => {
-              // ВАЖНО: Маппинг по индексам из вашего Excel (A=0, B=1, C=2...)
-              // Если row пришел как объект, берем values. Если как массив - берем так.
+              // Маппинг по индексам (0=A, 1=B и т.д.)
               const vals = Array.isArray(row) ? row : Object.values(row);
 
               return {
@@ -52,28 +46,20 @@ export const loadRealData = async (): Promise<OOHRecord[]> => {
                 
                 // 0 = A (Адрес)
                 address: String(vals[0] || ''),
-                
                 // 5 = F (Город)
                 city: String(vals[5] || ''),
-                
                 // 4 = E (Год)
                 year: Number(vals[4]) || 0,
-                
                 // 8 = I (Месяц)
                 month: String(vals[8] || ''),
-                
                 // 11 = L (Продавец)
                 vendor: String(vals[11] || ''),
-                
                 // 14 = O (Формат)
                 format: String(vals[14] || ''),
-                
                 // 17 = R (GRP)
                 grp: Number(vals[17]) || 0,
-                
                 // 18 = S (OTS)
                 ots: Number(vals[18]) || 0,
-                
                 // 15 = P (Широта), 7 = H (Долгота)
                 lat: parseCoord(vals[15] || 55.75),
                 lng: parseCoord(vals[7] || 37.61),
@@ -101,7 +87,6 @@ const parseCoord = (val: any): number => {
   return Number(val);
 };
 
-// Функции форматирования остаются без изменений
 export const formatNumberRussian = (num: number, decimals = 2): string => {
   return num.toLocaleString('ru-RU', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
 };
