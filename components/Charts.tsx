@@ -11,33 +11,69 @@ interface ChartProps {
   onFilterClick?: (type: 'date' | 'format' | 'vendor', value: any) => void;
 }
 
-// --- 1. ГРАФИК ДИНАМИКИ ---
+// Помощник для перевода месяцев в сокращенный вид и получения индекса для сортировки
+const getMonthInfo = (monthStr: string) => {
+  const m = monthStr.toLowerCase().trim();
+  const map: Record<string, number> = {
+    'январь': 0, 'янв': 0, '01': 0, '1': 0,
+    'февраль': 1, 'фев': 1, '02': 1, '2': 1,
+    'март': 2, 'мар': 2, '03': 2, '3': 2,
+    'апрель': 3, 'апр': 3, '04': 3, '4': 3,
+    'май': 4, '05': 4, '5': 4,
+    'июнь': 5, 'июн': 5, '06': 5, '6': 5,
+    'июль': 6, 'июл': 6, '07': 6, '7': 6,
+    'август': 7, 'авг': 7, '08': 7, '8': 7,
+    'сентябрь': 8, 'сен': 8, '09': 8, '9': 8,
+    'октябрь': 9, 'окт': 9, '10': 9,
+    'ноябрь': 10, 'ноя': 10, '11': 10,
+    'декабрь': 11, 'дек': 11, '12': 11,
+  };
+  
+  const shortNames = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
+  
+  const index = map[m] !== undefined ? map[m] : -1;
+  return {
+    index,
+    shortName: index >= 0 ? shortNames[index] : monthStr
+  };
+};
+
+// --- 1. ГРАФИК ДИНАМИКИ (ИСПРАВЛЕННЫЙ) ---
 export const TrendChart: React.FC<ChartProps> = ({ data, onFilterClick }) => {
   const chartData = useMemo(() => {
-    const grouped: Record<string, { totalGrp: number; count: number; year: number; month: string }> = {};
+    const grouped: Record<string, { totalGrp: number; count: number; year: number; monthIdx: number; fullMonth: string }> = {};
     
     data.forEach(d => {
-      // Если dateLabel пустой (старый файл), называем точку "Без даты" или берем из года/месяца
-      const label = d.dateLabel || `${d.month} ${d.year}`;
+      // 1. Игнорируем столбец U. Собираем ключ сами из Года и Месяца.
+      const { index: monthIdx, shortName } = getMonthInfo(d.month);
       
-      if (!grouped[label]) {
-        grouped[label] = { totalGrp: 0, count: 0, year: d.year, month: d.month };
+      // Уникальный ключ для группировки: "2024-0" (январь 2024)
+      const sortKey = `${d.year}-${monthIdx}`;
+      
+      if (!grouped[sortKey]) {
+        grouped[sortKey] = { 
+          totalGrp: 0, 
+          count: 0, 
+          year: d.year, 
+          monthIdx: monthIdx,
+          fullMonth: d.month 
+        };
       }
-      grouped[label].totalGrp += d.grp;
-      grouped[label].count += 1;
+      grouped[sortKey].totalGrp += d.grp;
+      grouped[sortKey].count += 1;
     });
 
-    return Object.keys(grouped).map(key => ({
-      name: key,
-      value: grouped[key].totalGrp / grouped[key].count,
-      year: grouped[key].year,
-      month: grouped[key].month
-    })).sort((a, b) => {
-       const monthsOrder = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
-       const getMIdx = (m: string) => monthsOrder.findIndex(mo => m.toLowerCase().includes(mo));
-       if (a.year !== b.year) return a.year - b.year;
-       return getMIdx(a.month) - getMIdx(b.month);
-    });
+    // 2. Превращаем в массив и сортируем
+    return Object.values(grouped).map(item => ({
+      // Формируем красивую подпись: "янв 2024"
+      name: `${getMonthInfo(item.fullMonth).shortName} ${item.year}`,
+      value: item.totalGrp / item.count,
+      year: item.year,
+      month: item.fullMonth,
+      // Для сортировки используем числовое значение: год * 100 + месяц
+      sortValue: item.year * 100 + item.monthIdx
+    })).sort((a, b) => a.sortValue - b.sortValue);
+
   }, [data]);
 
   return (
@@ -54,8 +90,11 @@ export const TrendChart: React.FC<ChartProps> = ({ data, onFilterClick }) => {
               }
             }}
             className="cursor-pointer"
+            // Добавляем отступы слева и справа, чтобы точки не обрезались
+            margin={{ top: 20, right: 10, left: 10, bottom: 0 }}
           >
             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
+            
             <XAxis 
               dataKey="name" 
               tick={{ fontSize: 11, fill: '#6b7280' }} 
@@ -64,12 +103,16 @@ export const TrendChart: React.FC<ChartProps> = ({ data, onFilterClick }) => {
               angle={-30}
               textAnchor="end"
               height={50}
+              // ВАЖНО: Отступ слева и справа внутри оси
+              padding={{ left: 30, right: 30 }}
             />
+            
             <Tooltip 
               formatter={(val: number) => [formatNumberRussian(val), 'Средний GRP']}
               labelStyle={{ color: '#111827', fontWeight: 'bold' }}
               contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
             />
+            
             <Line 
               type="monotone" 
               dataKey="value" 
@@ -78,7 +121,14 @@ export const TrendChart: React.FC<ChartProps> = ({ data, onFilterClick }) => {
               dot={{ r: 5, fill: '#fff', strokeWidth: 2 }} 
               activeDot={{ r: 7, fill: '#334155' }}
             >
-               <LabelList dataKey="value" position="top" formatter={(val: number) => formatNumberRussian(val)} style={{ fontSize: '11px', fill: '#334155', fontWeight: 500 }} />
+               {/* dy={-15} поднимает текст выше точки */}
+               <LabelList 
+                 dataKey="value" 
+                 position="top" 
+                 dy={-15} 
+                 formatter={(val: number) => formatNumberRussian(val)} 
+                 style={{ fontSize: '11px', fill: '#334155', fontWeight: 600 }} 
+               />
             </Line>
           </LineChart>
         </ResponsiveContainer>
@@ -87,7 +137,7 @@ export const TrendChart: React.FC<ChartProps> = ({ data, onFilterClick }) => {
   );
 };
 
-// --- 2. ГРАФИК ФОРМАТОВ ---
+// --- 2. ГРАФИК ФОРМАТОВ (Без изменений) ---
 export const FormatBarChart: React.FC<ChartProps> = ({ data, onFilterClick }) => {
   const chartData = useMemo(() => {
     const grouped: Record<string, { totalGrp: number; count: number }> = {};
@@ -141,7 +191,7 @@ export const FormatBarChart: React.FC<ChartProps> = ({ data, onFilterClick }) =>
   );
 };
 
-// --- 3. TREEMAP ПРОДАВЦОВ ---
+// --- 3. TREEMAP ПРОДАВЦОВ (Без изменений) ---
 const COLORS = ['#0ea5e9', '#22c55e', '#eab308', '#f97316', '#ef4444', '#a855f7', '#ec4899', '#6366f1'];
 
 export const VendorTreemap: React.FC<ChartProps> = ({ data, onFilterClick }) => {
@@ -162,9 +212,6 @@ export const VendorTreemap: React.FC<ChartProps> = ({ data, onFilterClick }) => 
   }, [data]);
 
   const CustomContent = (props: any) => {
-    // --- ИСПРАВЛЕНИЕ ЗДЕСЬ ---
-    // Иногда Recharts передает данные в 'value', а не в 'size'.
-    // Мы берем то, что есть, и добавляем || 0, чтобы toLocaleString не упал.
     const { x, y, width, height, name, size, value } = props;
     const displayValue = size || value || 0;
     
