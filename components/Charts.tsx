@@ -191,19 +191,10 @@ export const FormatBarChart: React.FC<ChartProps> = ({ data, onFilterClick }) =>
   );
 };
 
-// --- 3. TREEMAP ПРОДАВЦОВ (ОБНОВЛЕННЫЙ: Градиент + Проценты) ---
-
-// Палитра "Корпоративный синий/грифельный": от темного к светлому
-// Самый крупный сегмент будет самым темным
+// --- 3. TREEMAP ПРОДАВЦОВ (ИСПРАВЛЕННЫЙ) ---
 const SHADES = [
-  '#1e293b', // Slate 800 (Почти черный)
-  '#334155', // Slate 700
-  '#475569', // Slate 600
-  '#57534e', // Stone 600 (Для контраста)
-  '#64748b', // Slate 500
-  '#71717a', // Zinc 500
-  '#94a3b8', // Slate 400 (Светлее)
-  '#a1a1aa', // Zinc 400
+  '#1e293b', '#334155', '#475569', '#57534e', 
+  '#64748b', '#71717a', '#94a3b8', '#a1a1aa'
 ];
 
 export const VendorTreemap: React.FC<ChartProps> = ({ data, onFilterClick }) => {
@@ -211,74 +202,60 @@ export const VendorTreemap: React.FC<ChartProps> = ({ data, onFilterClick }) => 
     const grouped: Record<string, number> = {};
     let totalCount = 0;
 
-    // 1. Считаем количество и общую сумму
     data.forEach(d => {
-      if (!grouped[d.vendor]) grouped[d.vendor] = 0;
-      grouped[d.vendor] += 1; 
+      // Используем trim, чтобы убрать мусор, если он есть
+      const v = (d.vendor || '').trim(); 
+      if (!grouped[v]) grouped[v] = 0;
+      grouped[v] += 1; 
       totalCount += 1;
     });
 
-    // 2. Формируем массив с процентами и цветами
     return Object.keys(grouped)
       .map((key) => {
         const count = grouped[key];
         const percent = totalCount > 0 ? ((count / totalCount) * 100).toFixed(1) : '0';
-        
         return { 
           name: key, 
           size: count,
-          percent: percent // Добавляем поле процента в данные
+          percent: percent 
         };
       })
-      .sort((a, b) => b.size - a.size) // Сортируем от большего к меньшему
+      .sort((a, b) => b.size - a.size)
       .map((item, index) => ({
         ...item,
-        // Назначаем цвет: чем выше в списке (больше доля), тем темнее цвет
         fill: SHADES[index % SHADES.length]
       }));
   }, [data]);
 
-  // Кастомный блок внутри прямоугольника
   const CustomContent = (props: any) => {
-    const { x, y, width, height, name, size, percent, fill } = props;
+    // Recharts может передавать значение как 'size' или как 'value'
+    const { x, y, width, height, name, size, value, percent, fill } = props;
     
-    // Если прямоугольник слишком маленький, не рисуем текст
+    // ЗАЩИТА ОТ ОШИБКИ:
+    // Берем size, если нет — value, если нет — 0.
+    const displayValue = size || value || 0;
+    const displayPercent = percent || '0'; // Защита, если процент вдруг не пришел
+
     if (width < 50 || height < 40) return null;
     
     return (
       <g>
-        {/* Прямоугольник */}
         <rect 
-          x={x} 
-          y={y} 
-          width={width} 
-          height={height} 
-          fill={fill} 
-          stroke="#fff" 
-          strokeWidth={2} 
-          rx={4} // Скругление углов как на скриншоте
-          ry={4}
+          x={x} y={y} width={width} height={height} 
+          fill={fill} stroke="#fff" strokeWidth={2} rx={4} ry={4}
         />
-        {/* Название продавца */}
         <text 
-          x={x + 8} 
-          y={y + 20} 
-          fill="#fff" 
-          fontSize={12} 
-          fontWeight="bold"
-          style={{ pointerEvents: 'none' }} // Чтобы клик проходил сквозь текст
+          x={x + 8} y={y + 20} fill="#fff" fontSize={12} fontWeight="bold"
+          style={{ pointerEvents: 'none' }}
         >
           {name}
         </text>
-        {/* Количество и процент */}
         <text 
-          x={x + 8} 
-          y={y + 38} 
-          fill="rgba(255,255,255,0.8)" 
-          fontSize={11}
+          x={x + 8} y={y + 38} fill="rgba(255,255,255,0.8)" fontSize={11}
           style={{ pointerEvents: 'none' }}
         >
-          {size.toLocaleString('ru-RU')} шт. ({percent}%)
+          {/* Вызываем toLocaleString на гарантированном числе */}
+          {displayValue.toLocaleString('ru-RU')} шт. ({displayPercent}%)
         </text>
       </g>
     );
@@ -295,22 +272,25 @@ export const VendorTreemap: React.FC<ChartProps> = ({ data, onFilterClick }) => 
             stroke="#fff"
             content={<CustomContent />}
             onClick={(e) => {
-              if (e && e.name) {
-                 if (onFilterClick) onFilterClick('vendor', e.name);
-              }
+              if (e && e.name && onFilterClick) onFilterClick('vendor', e.name);
             }}
             className="cursor-pointer"
           >
             <Tooltip 
-              // Кастомный тултип, чтобы показать проценты при наведении
               content={({ active, payload }) => {
                 if (active && payload && payload.length) {
-                  const data = payload[0].payload;
+                  const d = payload[0].payload;
+                  // Здесь тоже добавляем защиту (d.size || 0)
+                  const val = d.size || d.value || 0;
                   return (
                     <div className="bg-white p-3 border border-gray-200 shadow-lg rounded-md text-sm">
-                      <p className="font-bold text-gray-900 mb-1">{data.name}</p>
-                      <p className="text-gray-600">Поверхностей: <span className="font-medium text-gray-900">{data.size.toLocaleString('ru-RU')}</span></p>
-                      <p className="text-gray-600">Доля рынка: <span className="font-medium text-teal-600">{data.percent}%</span></p>
+                      <p className="font-bold text-gray-900 mb-1">{d.name}</p>
+                      <p className="text-gray-600">
+                        Поверхностей: <span className="font-medium text-gray-900">{val.toLocaleString('ru-RU')}</span>
+                      </p>
+                      <p className="text-gray-600">
+                        Доля рынка: <span className="font-medium text-teal-600">{d.percent}%</span>
+                      </p>
                     </div>
                   );
                 }
