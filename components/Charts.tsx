@@ -38,32 +38,27 @@ const getMonthInfo = (monthStr: string) => {
   };
 };
 
-// --- 1. ГРАФИК ДИНАМИКИ (С КЛИКАБЕЛЬНОСТЬЮ) ---
+// --- 1. ГРАФИК ДИНАМИКИ (ИСПРАВЛЕННЫЙ КЛИК) ---
 export const TrendChart: React.FC<ChartProps> = ({ data, onFilterClick }) => {
   const chartData = useMemo(() => {
+    // ... (логика useMemo остается без изменений) ...
     const grouped: Record<string, { totalGrp: number; count: number; year: number; monthIdx: number; fullMonth: string }> = {};
-    
     data.forEach(d => {
       const { index: monthIdx, shortName } = getMonthInfo(d.month);
       const sortKey = `${d.year}-${monthIdx}`;
-      
       if (!grouped[sortKey]) {
-        grouped[sortKey] = { 
-          totalGrp: 0, count: 0, year: d.year, monthIdx: monthIdx, fullMonth: d.month 
-        };
+        grouped[sortKey] = { totalGrp: 0, count: 0, year: d.year, monthIdx: monthIdx, fullMonth: d.month };
       }
       grouped[sortKey].totalGrp += d.grp;
       grouped[sortKey].count += 1;
     });
-
     return Object.values(grouped).map(item => ({
       name: `${getMonthInfo(item.fullMonth).shortName} ${item.year}`,
       value: item.totalGrp / item.count,
-      year: item.year, // Важно для фильтра
-      month: item.fullMonth, // Важно для фильтра
+      year: item.year, 
+      month: item.fullMonth, 
       sortValue: item.year * 100 + item.monthIdx
     })).sort((a, b) => a.sortValue - b.sortValue);
-
   }, [data]);
 
   return (
@@ -74,20 +69,6 @@ export const TrendChart: React.FC<ChartProps> = ({ data, onFilterClick }) => {
           <LineChart 
             data={chartData} 
             margin={{ top: 20, right: 10, left: 10, bottom: 0 }}
-            className="cursor-pointer" // Курсор-палец, чтобы было понятно, что можно кликать
-            onClick={(e) => {
-              // Проверяем, есть ли активная точка (activePayload)
-              if (e && e.activePayload && e.activePayload.length > 0) {
-                const payload = e.activePayload[0].payload;
-                if (onFilterClick) {
-                  // Передаем объект с годом и месяцем
-                  onFilterClick('date', { 
-                    year: String(payload.year), 
-                    month: payload.month 
-                  });
-                }
-              }
-            }}
           >
             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
             <XAxis 
@@ -101,9 +82,25 @@ export const TrendChart: React.FC<ChartProps> = ({ data, onFilterClick }) => {
               contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
             />
             <Line 
-              type="monotone" dataKey="value" stroke="#334155" strokeWidth={3} 
+              type="monotone" 
+              dataKey="value" 
+              stroke="#334155" 
+              strokeWidth={3} 
               dot={{ r: 5, fill: '#fff', strokeWidth: 2 }} 
-              activeDot={{ r: 7, fill: '#334155' }}
+              // ВАЖНО: activeDot - это точка, которая появляется при наведении.
+              // Мы вешаем onClick и cursor-pointer именно на неё.
+              activeDot={{ 
+                r: 8, 
+                fill: '#334155', 
+                cursor: 'pointer',
+                onClick: (e: any, payload: any) => {
+                   // Recharts передает данные точки в payload.payload
+                   const item = payload.payload; 
+                   if (onFilterClick && item) {
+                     onFilterClick('date', { year: String(item.year), month: item.month });
+                   }
+                }
+              }}
             >
                <LabelList 
                  dataKey="value" position="top" dy={-15} 
@@ -118,18 +115,17 @@ export const TrendChart: React.FC<ChartProps> = ({ data, onFilterClick }) => {
   );
 };
 
-// --- 2. ГРАФИК ФОРМАТОВ (С КЛИКАБЕЛЬНОСТЬЮ) ---
+// --- 2. ГРАФИК ФОРМАТОВ (ИСПРАВЛЕННЫЙ КЛИК) ---
 export const FormatBarChart: React.FC<ChartProps> = ({ data, onFilterClick }) => {
   const chartData = useMemo(() => {
+    // ... (логика useMemo остается без изменений) ...
     const grouped: Record<string, { totalGrp: number; count: number }> = {};
     data.forEach(d => {
-      // Используем trim, чтобы избежать проблем с пробелами
       const fmt = (d.format || '').trim(); 
       if (!grouped[fmt]) grouped[fmt] = { totalGrp: 0, count: 0 };
       grouped[fmt].totalGrp += d.grp;
       grouped[fmt].count += 1;
     });
-
     return Object.keys(grouped)
       .map(key => ({ name: key, value: grouped[key].totalGrp / grouped[key].count }))
       .sort((a, b) => b.value - a.value)
@@ -145,16 +141,6 @@ export const FormatBarChart: React.FC<ChartProps> = ({ data, onFilterClick }) =>
             layout="vertical" 
             data={chartData} 
             margin={{ left: 20, right: 30 }}
-            className="cursor-pointer" // Добавляем курсор
-            onClick={(e) => {
-              if (e && e.activePayload && e.activePayload.length > 0) {
-                // Получаем название формата (name) из кликнутого бара
-                const formatName = e.activePayload[0].payload.name;
-                if (onFilterClick) {
-                    onFilterClick('format', formatName);
-                }
-              }
-            }}
           >
             <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="#f0f0f0" />
             <XAxis type="number" hide />
@@ -164,7 +150,21 @@ export const FormatBarChart: React.FC<ChartProps> = ({ data, onFilterClick }) =>
               axisLine={false} tickLine={false} interval={0}
             />
             <Tooltip formatter={(val: number) => formatNumberRussian(val)} cursor={{fill: '#f3f4f6'}} />
-            <Bar dataKey="value" fill="#334155" radius={[0, 4, 4, 0]} barSize={24}>
+            
+            {/* ВАЖНО: onClick перенесен прямо на Bar */}
+            <Bar 
+              dataKey="value" 
+              fill="#334155" 
+              radius={[0, 4, 4, 0]} 
+              barSize={24}
+              className="cursor-pointer" // Добавляем стиль курсора
+              onClick={(data: any) => {
+                // В Bar onClick первым аргументом прилетает сам объект данных
+                if (onFilterClick && data && data.name) {
+                   onFilterClick('format', data.name);
+                }
+              }}
+            >
               <LabelList 
                 dataKey="value" position="right" 
                 formatter={(val: number) => formatNumberRussian(val)} 
@@ -177,7 +177,6 @@ export const FormatBarChart: React.FC<ChartProps> = ({ data, onFilterClick }) =>
     </div>
   );
 };
-
 // --- 3. TREEMAP ПРОДАВЦОВ (ИСПРАВЛЕННЫЙ) ---
 const SHADES = [
   '#1e293b', '#334155', '#475569', '#57534e', 
