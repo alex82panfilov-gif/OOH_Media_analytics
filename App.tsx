@@ -163,24 +163,35 @@ const App: React.FC = () => {
      return filteredData.slice(0, 5000);
   }, [filteredData]);
 
-  const kpis = useMemo(() => {
-    if (filteredData.length === 0) return { avgGrp: 0, totalOts: 0, uniqueSurfaces: 0, totalSurfaces: 0, percentHighGrp: 0 };
+const kpis = useMemo(() => {
+    if (filteredData.length === 0) return { 
+      avgGrp: 0, totalOtsMillions: 0, uniqueSurfaces: 0, 
+      totalSurfaces: 0, percentHighGrp: 0, 
+      digitalCount: 0, digitalShare: 0 
+    };
     
     const totalGrp = filteredData.reduce((acc, curr) => acc + curr.grp, 0);
     const avgGrp = totalGrp / filteredData.length;
     
-    // Сумма OTS из данных (в Excel они в тысячах)
     const totalOtsRaw = filteredData.reduce((acc, curr) => acc + curr.ots, 0); 
-    
-    // Перевод в миллионы: (Сумма тысяч) / 1000 = Миллионы
     const totalOtsMillions = totalOtsRaw / 1000;
 
     const uniqueSurfaces = new Set(filteredData.map(d => d.address)).size; 
     const totalSurfaces = filteredData.length;
+    
     const highGrpCount = filteredData.filter(d => d.grp > avgGrp).length;
     const percentHighGrp = (highGrpCount / filteredData.length) * 100;
 
-    return { avgGrp, totalOtsMillions, uniqueSurfaces, totalSurfaces, percentHighGrp };
+    // --- НОВАЯ ЛОГИКА: Считаем цифру (Digital + MF) ---
+    const digitalCount = filteredData.filter(d => {
+      const fmt = d.format.toUpperCase(); // На всякий случай приводим к верхнему регистру
+      // Форматы на "D" (DBB, DCF...) или "MF" (Медиафасады)
+      return fmt.startsWith('D') || fmt === 'MF';
+    }).length;
+
+    const digitalShare = totalSurfaces > 0 ? (digitalCount / totalSurfaces) * 100 : 0;
+
+    return { avgGrp, totalOtsMillions, uniqueSurfaces, totalSurfaces, percentHighGrp, digitalCount, digitalShare };
   }, [filteredData]);
 
   const handleFilterChange = (key: keyof FilterState, value: string) => {
