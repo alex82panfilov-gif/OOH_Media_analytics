@@ -19,7 +19,7 @@ export const loadRealData = async (): Promise<OOHRecord[]> => {
   const promises = FILE_LIST.map(async (filename) => {
     try {
       const response = await fetch(`/data/${filename}`);
-      if (!response.ok) return [];
+      if (!response.ok) return []; // Если файла нет (404), просто выходим без ошибки
 
       const arrayBuffer = await response.arrayBuffer();
       
@@ -41,8 +41,7 @@ export const loadRealData = async (): Promise<OOHRecord[]> => {
                 format: String(vals[14] || ''),
                 grp: Number(vals[17]) || 0,
                 ots: Number(vals[18]) || 0,
-                // Колонка U (20-я по счету в Excel, если начинать с 0)
-                // A=0 ... T=19, U=20
+                // Колонка U (индекс 20). Если её нет (старый файл), будет пустая строка
                 dateLabel: String(vals[20] || ''), 
                 lat: parseCoord(vals[15] || 55.75),
                 lng: parseCoord(vals[7] || 37.61),
@@ -65,11 +64,15 @@ const parseCoord = (val: any): number => {
   return Number(val);
 };
 
-export const formatNumberRussian = (num: number, decimals = 2): string => {
+// --- ИСПРАВЛЕНИЕ ЗДЕСЬ ---
+// Добавили проверку: если num undefined или NaN, возвращаем '0'
+export const formatNumberRussian = (num: number | undefined | null, decimals = 2): string => {
+  if (num === undefined || num === null || isNaN(num)) return '0';
   return num.toLocaleString('ru-RU', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
 };
 
-export const formatCompactRussian = (num: number): string => {
+export const formatCompactRussian = (num: number | undefined | null): string => {
+  if (num === undefined || num === null || isNaN(num)) return '0';
   if (num >= 1000000) return `${(num / 1000000).toLocaleString('ru-RU', { maximumFractionDigits: 1 })} млн`;
   if (num >= 1000) return `${(num / 1000).toLocaleString('ru-RU', { maximumFractionDigits: 1 })} тыс.`;
   return num.toString();
