@@ -352,5 +352,9 @@ const kpis = useMemo(() => {
             )}
           </div>
         )}
+      </main>
+    </div>
+  );
+};
 
-  export default App;
+export default App;
