@@ -230,13 +230,22 @@ const kpis = useMemo(() => {
 
       {/* CONTENT */}
       <main className="flex-grow p-6 overflow-y-auto w-full max-w-[1600px] mx-auto">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+        {/* Изменили grid-cols-4 на grid-cols-5 для больших экранов (xl) */}
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4 mb-6">
           <KPICard value={formatNumberRussian(kpis.avgGrp)} label="Средний GRP" />
           
-          {/* ИСПРАВЛЕНО: Показываем в миллионах */}
           <KPICard value={`${formatNumberRussian(kpis.totalOtsMillions, 1)} млн`} label="Общий OTS" subtext="контактов" />
           
           <KPICard value={formatCompactRussian(kpis.totalSurfaces)} label="Всего поверхностей" subtext={`(Уникальных адресов: ${kpis.uniqueSurfaces.toLocaleString('ru-RU')})`} />
+          
+          {/* НОВАЯ 4-я карточка: Цифровой инвентарь */}
+          <KPICard 
+            value={formatCompactRussian(kpis.digitalCount)} 
+            label="Цифровых поверхностей" 
+            subtext={`Доля: ${Math.round(kpis.digitalShare)}% (DOOH + MF)`} 
+          />
+
+          {/* 5-я карточка (сдвинулась) */}
           <KPICard value={`${Math.round(kpis.percentHighGrp)}%`} label="% конструкций выше среднего GRP" />
         </div>
 
