@@ -3,9 +3,8 @@ import { OOHRecord, FilterState, TabView } from './types';
 import { loadRealData, formatNumberRussian, formatCompactRussian } from './utils/data';
 import { TrendChart, FormatBarChart, VendorTreemap } from './components/Charts';
 import { MapViz } from './components/MapViz';
-import { Loader2, AlertTriangle } from 'lucide-react';
+import { Loader2, AlertTriangle, Map as MapIcon, Lock } from 'lucide-react';
 
-// --- COMPONENTS ---
 const KPI_CARD_CLASS = "bg-white p-6 rounded-lg shadow-sm border border-gray-200 flex flex-col items-center justify-center text-center h-32 transition-all hover:shadow-md";
 
 const KPICard = ({ label, value, subtext }: { label: string; value: string; subtext?: string }) => (
@@ -17,15 +16,9 @@ const KPICard = ({ label, value, subtext }: { label: string; value: string; subt
 );
 
 const FilterDropdown = ({ 
-  label, 
-  value, 
-  options, 
-  onChange 
+  label, value, options, onChange 
 }: { 
-  label: string; 
-  value: string; 
-  options: string[]; 
-  onChange: (v: string) => void 
+  label: string; value: string; options: string[]; onChange: (v: string) => void 
 }) => (
   <div className="flex flex-col min-w-[140px] w-full sm:w-auto">
     <label className="text-xs text-gray-500 mb-1 ml-1 font-medium">{label}</label>
@@ -48,6 +41,7 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Загрузка данных
   useEffect(() => {
     const fetchData = async () => {
       setIsLoading(true);
@@ -57,7 +51,7 @@ const App: React.FC = () => {
         setData(records);
       } catch (err: any) {
         console.error("CRITICAL ERROR:", err);
-        setError(err.message || "Произошла неизвестная ошибка при загрузке данных");
+        setError(err.message || "Ошибка загрузки данных");
       } finally {
         setIsLoading(false);
       }
@@ -65,26 +59,32 @@ const App: React.FC = () => {
     fetchData();
   }, []);
 
-  // Filter State
+  // Состояние фильтров
   const [filters, setFilters] = useState<FilterState>({
     city: 'Все', year: 'Все', month: 'Все', format: 'Все', vendor: 'Все',
   });
 
+  // --- ЛОГИКА ОГРАНИЧЕНИЯ КАРТЫ ---
+  // Карта доступна, только если выбраны: ГОРОД + ГОД + МЕСЯЦ
+  const isMapReady = filters.city !== 'Все' && filters.year !== 'Все' && filters.month !== 'Все';
+
   const options = useMemo(() => {
     if (data.length === 0) return { cities: [], years: [], months: [], formats: [], vendors: [] };
+    const getUnique = (key: keyof OOHRecord) => Array.from(new Set(data.map(d => String(d[key])))).sort();
+    
     return {
-      cities: Array.from(new Set(data.map(d => d.city))).sort(),
-      years: Array.from(new Set(data.map(d => d.year.toString()))).sort(),
-      months: Array.from(new Set(data.map(d => d.month))), 
-      formats: Array.from(new Set(data.map(d => d.format))).sort(),
-      vendors: Array.from(new Set(data.map(d => d.vendor))).sort(),
+      cities: getUnique('city'),
+      years: getUnique('year'),
+      months: Array.from(new Set(data.map(d => d.month))),
+      formats: getUnique('format'),
+      vendors: getUnique('vendor'),
     };
   }, [data]);
 
   const filteredData = useMemo(() => {
     return data.filter(d => {
       if (filters.city !== 'Все' && d.city !== filters.city) return false;
-      if (filters.year !== 'Все' && d.year.toString() !== filters.year) return false;
+      if (filters.year !== 'Все' && String(d.year) !== filters.year) return false;
       if (filters.month !== 'Все' && d.month !== filters.month) return false;
       if (filters.format !== 'Все' && d.format !== filters.format) return false;
       if (filters.vendor !== 'Все' && d.vendor !== filters.vendor) return false;
@@ -92,52 +92,36 @@ const App: React.FC = () => {
     });
   }, [data, filters]);
 
+  // Ограничиваем точки для карты (безопасный лимит браузера)
+  const mapData = useMemo(() => {
+     return filteredData.slice(0, 5000);
+  }, [filteredData]);
+
   const kpis = useMemo(() => {
-    if (filteredData.length === 0) return { avgGrp: 0, totalOts: 0, uniqueSurfaces: 0, percentHighGrp: 0 };
+    if (filteredData.length === 0) return { avgGrp: 0, totalOts: 0, uniqueSurfaces: 0, totalSurfaces: 0, percentHighGrp: 0 };
+    
     const totalGrp = filteredData.reduce((acc, curr) => acc + curr.grp, 0);
     const avgGrp = totalGrp / filteredData.length;
     const totalOts = filteredData.reduce((acc, curr) => acc + curr.ots, 0); 
     const uniqueSurfaces = new Set(filteredData.map(d => d.address)).size; 
+    const totalSurfaces = filteredData.length;
     const highGrpCount = filteredData.filter(d => d.grp > avgGrp).length;
     const percentHighGrp = (highGrpCount / filteredData.length) * 100;
-    return { avgGrp, totalOts, uniqueSurfaces, percentHighGrp };
+
+    return { avgGrp, totalOts, uniqueSurfaces, totalSurfaces, percentHighGrp };
   }, [filteredData]);
 
   const handleFilterChange = (key: keyof FilterState, value: string) => {
     setFilters(prev => ({ ...prev, [key]: value }));
   };
 
-  // --- ЭКРАН ОШИБКИ ---
-  if (error) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
-        <div className="bg-white p-8 rounded-xl shadow-lg max-w-lg w-full border-l-4 border-red-500">
-          <div className="flex items-center gap-3 mb-4">
-            <AlertTriangle className="h-8 w-8 text-red-500" />
-            <h2 className="text-xl font-bold text-gray-800">Ошибка загрузки</h2>
-          </div>
-          <p className="text-gray-600 mb-4">{error}</p>
-          <div className="text-sm bg-gray-100 p-4 rounded text-gray-700 font-mono break-all">
-            Совет: Откройте консоль браузера (F12), чтобы увидеть детали. <br/>
-            Убедитесь, что файлы в папке public/data называются на английском (2024-01.parquet).
-          </div>
-          <button 
-            onClick={() => window.location.reload()}
-            className="mt-6 px-4 py-2 bg-gray-800 text-white rounded hover:bg-gray-700 w-full"
-          >
-            Попробовать снова
-          </button>
-        </div>
-      </div>
-    );
-  }
+  if (error) return <div className="p-10 text-red-600 text-center font-bold">Ошибка: {error}</div>;
 
-  // --- ЭКРАН ЗАГРУЗКИ ---
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-100 flex-col gap-4">
         <Loader2 className="h-10 w-10 animate-spin text-teal-600" />
-        <p className="text-gray-600 font-medium">Загрузка данных...</p>
+        <p className="text-gray-600 font-medium">Загрузка 2 млн записей...</p>
       </div>
     );
   }
@@ -151,7 +135,15 @@ const App: React.FC = () => {
             <h1 className="text-2xl font-bold text-gray-900 tracking-tight">OOH Media Analytics</h1>
             <div className="flex gap-4">
                 <button onClick={() => setActiveTab(TabView.ANALYTICS)} className={`px-6 py-3 rounded-lg text-lg font-bold transition-all border-2 ${activeTab === TabView.ANALYTICS ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-gray-500 border-gray-200'}`}>Analytics</button>
-                <button onClick={() => setActiveTab(TabView.MAP)} className={`px-6 py-3 rounded-lg text-lg font-bold transition-all border-2 ${activeTab === TabView.MAP ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-gray-500 border-gray-200'}`}>Map</button>
+                
+                {/* Кнопка карты с индикатором блокировки */}
+                <button 
+                  onClick={() => setActiveTab(TabView.MAP)} 
+                  className={`px-6 py-3 rounded-lg text-lg font-bold transition-all border-2 flex items-center gap-2 ${activeTab === TabView.MAP ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-gray-500 border-gray-200'}`}
+                >
+                  Map
+                  {!isMapReady && <Lock size={16} className="text-gray-400" />}
+                </button>
             </div>
           </div>
         </div>
@@ -174,7 +166,7 @@ const App: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
           <KPICard value={formatNumberRussian(kpis.avgGrp)} label="Средний GRP" />
           <KPICard value={`${formatCompactRussian(kpis.totalOts * 1000)}`} label="Общий OTS" subtext="человек" />
-          <KPICard value={`${kpis.uniqueSurfaces.toLocaleString('ru-RU')}`} label="Уникальные поверхности" />
+          <KPICard value={formatCompactRussian(kpis.totalSurfaces)} label="Всего поверхностей" subtext={`(Уникальных адресов: ${kpis.uniqueSurfaces.toLocaleString('ru-RU')})`} />
           <KPICard value={`${Math.round(kpis.percentHighGrp)}%`} label="% конструкций выше среднего GRP" />
         </div>
 
@@ -190,27 +182,62 @@ const App: React.FC = () => {
 
         {activeTab === TabView.MAP && (
           <div className="space-y-6 animate-in fade-in duration-500">
-            <MapViz data={filteredData} />
-             <div className="bg-white shadow-sm rounded-lg border border-gray-200 overflow-hidden">
-              <div className="px-4 py-3 border-b border-gray-200 bg-gray-50"><h3 className="text-sm font-medium text-gray-700">Детализация</h3></div>
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50"><tr><th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Город</th><th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Адрес</th><th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Продавец</th><th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Формат</th><th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">GRP</th><th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">OTS</th></tr></thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {filteredData.slice(0, 20).map((record) => (
-                      <tr key={record.id} className="hover:bg-gray-50">
-                        <td className="px-6 py-2 text-xs text-gray-900">{record.city}</td>
-                        <td className="px-6 py-2 text-xs text-gray-500 truncate max-w-xs" title={record.address}>{record.address}</td>
-                        <td className="px-6 py-2 text-xs text-gray-500">{record.vendor}</td>
-                        <td className="px-6 py-2 text-xs text-gray-500">{record.format}</td>
-                        <td className="px-6 py-2 text-xs text-gray-900 text-right">{formatNumberRussian(record.grp)}</td>
-                        <td className="px-6 py-2 text-xs text-gray-900 text-right">{formatNumberRussian(record.ots)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+            
+            {/* УСЛОВНАЯ ОТРИСОВКА: Карта или Предупреждение */}
+            {isMapReady ? (
+              <>
+                <div className="relative">
+                   <MapViz data={mapData} />
+                   {filteredData.length > 5000 && (
+                     <div className="absolute top-2 right-2 bg-yellow-100 text-yellow-800 text-xs px-3 py-1 rounded-full shadow-md z-[1000] border border-yellow-300">
+                       Показано 5000 из {filteredData.length} точек (ограничение браузера)
+                     </div>
+                   )}
+                </div>
+
+                <div className="bg-white shadow-sm rounded-lg border border-gray-200 overflow-hidden">
+                  <div className="px-4 py-3 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
+                      <h3 className="text-sm font-medium text-gray-700">Детализация по адресам</h3>
+                      <span className="text-xs text-gray-500">Всего найдено: {filteredData.length}</span>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-gray-200">
+                      <thead className="bg-gray-50"><tr><th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Город</th><th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Адрес</th><th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Продавец</th><th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Формат</th><th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">GRP</th><th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">OTS</th></tr></thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {filteredData.slice(0, 20).map((record) => (
+                          <tr key={record.id} className="hover:bg-gray-50">
+                            <td className="px-6 py-2 text-xs text-gray-900">{record.city}</td>
+                            <td className="px-6 py-2 text-xs text-gray-500 truncate max-w-xs" title={record.address}>{record.address}</td>
+                            <td className="px-6 py-2 text-xs text-gray-500">{record.vendor}</td>
+                            <td className="px-6 py-2 text-xs text-gray-500">{record.format}</td>
+                            <td className="px-6 py-2 text-xs text-gray-900 text-right">{formatNumberRussian(record.grp)}</td>
+                            <td className="px-6 py-2 text-xs text-gray-900 text-right">{formatNumberRussian(record.ots)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </>
+            ) : (
+              /* ЗАГЛУШКА: Если фильтры НЕ выбраны */
+              <div className="bg-yellow-50 border-l-4 border-yellow-400 p-8 rounded-md flex flex-col items-center justify-center h-[400px] shadow-sm">
+                 <div className="bg-yellow-100 p-4 rounded-full mb-4">
+                    <MapIcon className="h-10 w-10 text-yellow-600" />
+                 </div>
+                 <h3 className="text-xl font-bold text-yellow-800 mb-2">Для карты нужен точный выбор</h3>
+                 <p className="text-yellow-700 text-center max-w-md mb-6">
+                   Карта не может отобразить все 2 миллиона точек сразу.
+                 </p>
+                 <div className="flex items-center gap-2 bg-white px-6 py-3 rounded-lg shadow-sm border border-yellow-200">
+                    <AlertTriangle className="h-5 w-5 text-orange-500" />
+                    <span className="font-medium text-gray-700">
+                      Пожалуйста, выберите <strong>Город</strong>, <strong>Год</strong> и <strong>Месяц</strong> в фильтрах выше.
+                    </span>
+                 </div>
               </div>
-            </div>
+            )}
+
           </div>
         )}
       </main>
