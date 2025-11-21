@@ -1,7 +1,7 @@
 {
   "name": "ooh-media-analytics",
   "private": true,
-  "version": "0.0.11",
+  "version": "0.0.12",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -9,6 +9,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@vercel/analytics": "^1.4.1",
+    "@vercel/speed-insights": "^1.1.0",
     "hyparquet": "^1.0.0",
     "lucide-react": "^0.554.0",
     "pigeon-maps": "^0.21.0",
