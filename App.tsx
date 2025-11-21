@@ -3,8 +3,12 @@ import { OOHRecord, FilterState, TabView } from './types';
 import { loadRealData, formatNumberRussian, formatCompactRussian } from './utils/data';
 import { TrendChart, FormatBarChart, VendorTreemap } from './components/Charts';
 import { MapViz } from './components/MapViz';
-import { exportToExcel } from './utils/export'; // Импорт функции экспорта
-import { Loader2, AlertTriangle, Map as MapIcon, Lock, Download } from 'lucide-react'; // Добавили Download
+import { exportToExcel } from './utils/export';
+import { Loader2, AlertTriangle, Map as MapIcon, Lock, Download } from 'lucide-react';
+
+// --- ИМПОРТ АНАЛИТИКИ VERCEL ---
+import { Analytics } from '@vercel/analytics/react';
+import { SpeedInsights } from '@vercel/speed-insights/react';
 
 const KPI_CARD_CLASS = "bg-white p-6 rounded-lg shadow-sm border border-gray-200 flex flex-col items-center justify-center text-center h-32 transition-all hover:shadow-md";
 
@@ -42,7 +46,6 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   
-  // Состояние выбранной точки на карте
   const [selectedMapPointId, setSelectedMapPointId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -172,13 +175,10 @@ const App: React.FC = () => {
     setFilters(prev => ({ ...prev, [key]: value }));
   };
 
-  // --- ЛОГИКА ЭКСПОРТА В EXCEL ---
   const handleExcelExport = () => {
-    // Если выбраны основные фильтры (как для карты) -> выгружаем всё
     if (isMapReady) {
       exportToExcel(filteredData, 'OOH_Analytics', true);
     } else {
-      // Иначе предупреждаем
       const confirmed = window.confirm(
         "Внимание: Вы не выбрали Город, Год и Месяц.\n\n" +
         "Полная выгрузка может содержать миллионы строк и браузер может зависнуть.\n" +
@@ -217,7 +217,6 @@ const App: React.FC = () => {
            <FilterDropdown label="Формат" value={filters.format} options={options.formats} onChange={(v) => handleFilterChange('format', v)} />
            <FilterDropdown label="Продавец" value={filters.vendor} options={options.vendors} onChange={(v) => handleFilterChange('vendor', v)} />
            
-           {/* ГРУППА КНОПОК (EXCEL + СБРОС) */}
            <div className="ml-auto mb-1 flex gap-2">
              <button 
                onClick={handleExcelExport}
@@ -335,6 +334,10 @@ const App: React.FC = () => {
           </div>
         )}
       </main>
+
+      {/* КОМПОНЕНТЫ АНАЛИТИКИ VERCEL */}
+      <Analytics />
+      <SpeedInsights />
     </div>
   );
 };
